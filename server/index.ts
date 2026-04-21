@@ -821,7 +821,7 @@ app.put('/api/user/credit-card-history', authMiddleware, async (req: AuthRequest
 
     if (existingIndex >= 0) {
       // Get existing values and update with new ones
-      const existingDoc = user.creditCardHistory[existingIndex];
+      const existingDoc = user.creditCardHistory[existingIndex] as any;
       const existing = existingDoc.toObject ? existingDoc.toObject() : existingDoc;
       console.log('Existing entry:', existing);
 
@@ -920,8 +920,8 @@ app.post('/api/partner/link', authMiddleware, async (req: AuthRequest, res: Resp
     }
 
     // Link both users
-    currentUser.partnerId = partner._id as mongoose.Types.ObjectId;
-    partner.partnerId = currentUser._id as mongoose.Types.ObjectId;
+    currentUser.partnerId = partner._id as unknown as mongoose.Types.ObjectId;
+    partner.partnerId = currentUser._id as unknown as mongoose.Types.ObjectId;
 
     // Clear invite code
     partner.partnerInviteCode = undefined;

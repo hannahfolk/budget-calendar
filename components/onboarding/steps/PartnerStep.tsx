@@ -58,7 +58,7 @@ export default function PartnerStep({
       <div>
         <h2 className="text-2xl font-display font-bold mb-2">Partner Connected</h2>
         <p className="text-gray-400 font-mono text-sm mb-8">
-          You're linked with your partner
+          You&apos;re linked with your partner
         </p>
 
         <div className="p-6 bg-green-500/10 border border-green-500/30 rounded-lg text-center">
@@ -71,7 +71,7 @@ export default function PartnerStep({
             Connected to {partnerName}
           </p>
           <p className="text-gray-400 font-mono text-sm">
-            You can view each other's credit cards and share joint expenses
+            You can view each other&apos;s credit cards and share joint expenses
           </p>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function PartnerStep({
             </div>
 
             <p className="text-gray-400 font-mono text-sm mb-6">
-              Share this code with your partner. They should enter it in their "Enter Partner's Code" screen.
+              Share this code with your partner. They should enter it in their &quot;Enter Partner&apos;s Code&quot; screen.
             </p>
 
             <button
@@ -145,7 +145,7 @@ export default function PartnerStep({
   if (mode === 'enter') {
     return (
       <div>
-        <h2 className="text-2xl font-display font-bold mb-2">Enter Partner's Code</h2>
+        <h2 className="text-2xl font-display font-bold mb-2">Enter Partner&apos;s Code</h2>
         <p className="text-gray-400 font-mono text-sm mb-8">
           Enter the invite code your partner shared with you
         </p>
@@ -191,7 +191,7 @@ export default function PartnerStep({
     <div>
       <h2 className="text-2xl font-display font-bold mb-2">Partner Connection</h2>
       <p className="text-gray-400 font-mono text-sm mb-8">
-        Link with your partner to share joint expenses and see each other's credit cards.
+        Link with your partner to share joint expenses and see each other&apos;s credit cards.
         You can skip this step and do it later.
       </p>
 
@@ -220,7 +220,7 @@ export default function PartnerStep({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
           </div>
-          <h3 className="text-white font-mono mb-2">Enter Partner's Code</h3>
+          <h3 className="text-white font-mono mb-2">Enter Partner&apos;s Code</h3>
           <p className="text-gray-400 font-mono text-sm">
             Enter the code your partner shared with you
           </p>
@@ -229,7 +229,7 @@ export default function PartnerStep({
 
       <div className="p-4 bg-gray-800/30 border border-gray-700 rounded-lg">
         <p className="text-gray-400 font-mono text-sm text-center">
-          Don't have a partner to link with? Click "Skip" to continue.
+          Don&apos;t have a partner to link with? Click &quot;Skip&quot; to continue.
           You can always link later from settings.
         </p>
       </div>

@@ -121,7 +121,7 @@ export default function ReviewStep({ data }: ReviewStepProps) {
 
       <div className="mt-8 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
         <p className="text-green-300 font-mono text-sm text-center">
-          Click "Complete Setup" to save your settings and start using your budget calendar
+          Click &quot;Complete Setup&quot; to save your settings and start using your budget calendar
         </p>
       </div>
     </div>

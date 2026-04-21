@@ -47,7 +47,7 @@ export default function OnboardingPage() {
             Welcome, {user.name}!
           </h1>
           <p className="text-gray-400 font-mono text-sm">
-            Let's set up your budget calendar
+            Let&apos;s set up your budget calendar
           </p>
         </div>
 

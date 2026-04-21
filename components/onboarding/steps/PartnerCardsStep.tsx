@@ -66,14 +66,14 @@ export default function PartnerCardsStep({ partnerName }: PartnerCardsStepProps)
 
   return (
     <div>
-      <h2 className="text-2xl font-display font-bold mb-2">Partner's Cards</h2>
+      <h2 className="text-2xl font-display font-bold mb-2">Partner&apos;s Cards</h2>
       <p className="text-gray-400 font-mono text-sm mb-8">
-        Here are {partnerName || partner.name}'s credit cards for reference
+        Here are {partnerName || partner.name}&apos;s credit cards for reference
       </p>
 
       {allPartnerCards.length === 0 ? (
         <p className="text-gray-500 font-mono text-sm p-4 bg-gray-800/30 rounded-lg">
-          Your partner hasn't added any cards yet
+          Your partner hasn&apos;t added any cards yet
         </p>
       ) : (
         <div className="space-y-3">
@@ -95,7 +95,7 @@ export default function PartnerCardsStep({ partnerName }: PartnerCardsStepProps)
 
       <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
         <p className="text-blue-300 font-mono text-sm">
-          You can view your partner's cards. When they make purchases with joint expenses,
+          You can view your partner&apos;s cards. When they make purchases with joint expenses,
           those will appear in your shared budget tracking.
         </p>
       </div>

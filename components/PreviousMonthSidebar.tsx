@@ -56,7 +56,7 @@ function SortableHistoryItem({ id, children }: { id: string; children: (listener
 
   return (
     <div ref={setNodeRef} style={style}>
-      {children(listeners ?? {}, attributes ?? {})}
+      {children((listeners ?? {}) as Record<string, unknown>, (attributes ?? {}) as unknown as Record<string, unknown>)}
     </div>
   );
 }

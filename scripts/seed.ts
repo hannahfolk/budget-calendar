@@ -189,7 +189,7 @@ async function seed() {
     console.log(`✅ Inserted ${insertedCategories.length} categories`);
 
     // Insert sample entries for test user
-    const sampleEntries = generateSampleEntries(testUser._id as mongoose.Types.ObjectId);
+    const sampleEntries = generateSampleEntries(testUser._id as unknown as mongoose.Types.ObjectId);
     const insertedEntries = await BudgetEntry.insertMany(sampleEntries);
     console.log(`✅ Inserted ${insertedEntries.length} budget entries`);
 

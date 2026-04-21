@@ -376,7 +376,7 @@ export default function ProfileModal({ isOpen, onClose, hasPartner, onPartnerLin
                         onClick={() => setPartnerLinkMode('enter')}
                         className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-lg hover:border-purple-500 transition-colors text-left"
                       >
-                        <span className="text-white font-mono text-sm">Enter Partner's Code</span>
+                        <span className="text-white font-mono text-sm">Enter Partner&apos;s Code</span>
                         <p className="text-gray-500 font-mono text-xs">Link using their code</p>
                       </button>
                       <button
