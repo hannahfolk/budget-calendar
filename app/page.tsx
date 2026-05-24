@@ -334,6 +334,12 @@ export default function Home() {
               userCreatedAt={user.createdAt}
               hasPartner={!!user.partnerId}
               partnerJointCardNames={partnerJointCardNames}
+              onMonthChange={(newMonth) => {
+                const currentStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+                const targetStart = new Date(newMonth.getFullYear(), newMonth.getMonth(), 1);
+                if (targetStart < currentStart && !canGoPreviousMonth()) return;
+                setCurrentMonth(newMonth);
+              }}
             />
           )}
         </div>

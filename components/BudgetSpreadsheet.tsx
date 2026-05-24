@@ -34,6 +34,7 @@ interface Props {
   userCreatedAt?: string;
   hasPartner?: boolean;
   partnerJointCardNames?: string[];
+  onMonthChange?: (newMonth: Date) => void;
 }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -74,6 +75,7 @@ export default function BudgetSpreadsheet({
   userCreatedAt,
   hasPartner,
   partnerJointCardNames = [],
+  onMonthChange,
 }: Props) {
   const [editingCell, setEditingCell] = useState<{ dateKey: string; field: AccountField } | null>(null);
   const [editingBalance, setEditingBalance] = useState<'personal' | 'joint' | null>(null);
@@ -1290,14 +1292,19 @@ export default function BudgetSpreadsheet({
                   relative min-h-[160px] p-2 rounded-lg border transition-all duration-200
                   ${isCurrentMonth
                     ? 'bg-gray-800/40 border-gray-700/50 hover:bg-blue-500/10 hover:border-blue-500/30'
-                    : 'bg-gray-900/20 border-gray-800/30'}
+                    : 'bg-gray-900/20 border-gray-800/30 cursor-pointer hover:bg-gray-800/30 hover:border-gray-600/50'}
                   ${isTodayDate ? 'ring-2 ring-blue-500/50 border-blue-500/50' : ''}
                   ${isHovered && isCurrentMonth ? 'bg-blue-500/10 border-blue-500/30' : ''}
                   ${isLastDayPrevMonth && (isStartMonth || isAfterStartMonth) ? 'opacity-100 bg-gray-800/30' : hasOverflowData ? 'opacity-70 bg-gray-800/20' : !isCurrentMonth ? 'opacity-40' : ''}
                 `}
                 onMouseEnter={() => setHoveredDate(day)}
                 onMouseLeave={() => setHoveredDate(null)}
-                onClick={() => setShowingEntries(null)}
+                onClick={() => {
+                  setShowingEntries(null);
+                  if (!isCurrentMonth && onMonthChange) {
+                    onMonthChange(startOfMonth(day));
+                  }
+                }}
               >
                 {/* Day Number */}
                 <div className={`
