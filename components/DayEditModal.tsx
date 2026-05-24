@@ -19,6 +19,7 @@ interface Props {
   onSkipRecurringDeposit: (deposit: RecurringDeposit) => void;
   onEditRecurringDeposit: (deposit: RecurringDeposit, newAmount: number) => void;
   getLinkedAmount: (entry: BudgetEntry) => number;
+  isProjectedEntry: (entry: BudgetEntry) => boolean;
   formatCurrency: (amount: number) => string;
   creditCards: CreditCard[];
   monthlyExpenses: MonthlyExpense[];
@@ -37,6 +38,7 @@ export default function DayEditModal({
   onSkipRecurringDeposit,
   onEditRecurringDeposit,
   getLinkedAmount,
+  isProjectedEntry,
   formatCurrency,
   creditCards,
   monthlyExpenses,
@@ -270,12 +272,25 @@ export default function DayEditModal({
               ))}
 
               {/* Manual Deposit Entries */}
-              {depositEntries.map((entry) => (
+              {depositEntries.map((entry) => {
+                const projected = isProjectedEntry(entry);
+                return (
                 <div
                   key={entry._id}
-                  className={`flex items-center justify-between py-2 px-3 mb-1 rounded-lg ${isPersonal ? 'bg-green-500/10 border border-green-500/20' : 'bg-blue-500/10 border border-blue-500/20'}`}
+                  className={`flex items-center justify-between py-2 px-3 mb-1 rounded-lg ${
+                    projected
+                      ? (isPersonal ? 'bg-green-500/5 border border-dashed border-green-400/50' : 'bg-blue-500/5 border border-dashed border-blue-400/50')
+                      : (isPersonal ? 'bg-green-500/10 border border-green-500/20' : 'bg-blue-500/10 border border-blue-500/20')
+                  }`}
                 >
-                  <span className={isPersonal ? 'text-green-400' : 'text-blue-400'}>+{formatCurrency(getLinkedAmount(entry))}</span>
+                  <span className={`flex items-center gap-1.5 ${isPersonal ? 'text-green-400' : 'text-blue-400'}`}>
+                    +{formatCurrency(getLinkedAmount(entry))}
+                    {projected && (
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-dashed border-gray-500/60 rounded px-1 leading-tight">
+                        projected
+                      </span>
+                    )}
+                  </span>
                   <div className="flex items-center gap-2">
                     {entry.description && entry.description !== '+' && (
                       <span className="text-xs text-gray-500">{entry.description}</span>
@@ -288,7 +303,8 @@ export default function DayEditModal({
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               {/* Quick Add Deposit Buttons */}
               {hasDepositQuickActions && (
@@ -359,12 +375,25 @@ export default function DayEditModal({
               </h3>
 
               {/* Withdrawal Entries */}
-              {withdrawalEntries.map((entry) => (
+              {withdrawalEntries.map((entry) => {
+                const projected = isProjectedEntry(entry);
+                return (
                 <div
                   key={entry._id}
-                  className={`flex items-center justify-between py-2 px-3 mb-1 rounded-lg ${isPersonal ? 'bg-red-500/10 border border-red-500/20' : 'bg-orange-500/10 border border-orange-500/20'}`}
+                  className={`flex items-center justify-between py-2 px-3 mb-1 rounded-lg ${
+                    projected
+                      ? (isPersonal ? 'bg-red-500/5 border border-dashed border-red-400/50' : 'bg-orange-500/5 border border-dashed border-orange-400/50')
+                      : (isPersonal ? 'bg-red-500/10 border border-red-500/20' : 'bg-orange-500/10 border border-orange-500/20')
+                  }`}
                 >
-                  <span className={isPersonal ? 'text-red-400' : 'text-orange-400'}>-{formatCurrency(getLinkedAmount(entry))}</span>
+                  <span className={`flex items-center gap-1.5 ${isPersonal ? 'text-red-400' : 'text-orange-400'}`}>
+                    -{formatCurrency(getLinkedAmount(entry))}
+                    {projected && (
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-dashed border-gray-500/60 rounded px-1 leading-tight">
+                        projected
+                      </span>
+                    )}
+                  </span>
                   <div className="flex items-center gap-2">
                     {entry.description && entry.description !== '-' && entry.description !== '−' && (
                       <span className="text-xs text-gray-500">{entry.description}</span>
@@ -377,7 +406,8 @@ export default function DayEditModal({
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               {/* Quick Add Withdrawal Buttons */}
               {hasWithdrawalQuickActions && (

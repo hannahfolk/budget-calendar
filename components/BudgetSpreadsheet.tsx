@@ -431,6 +431,81 @@ export default function BudgetSpreadsheet({
     return history.reduce((sum, h) => sum + (isJoint ? (h.joint || 0) : (h.actual || 0)), 0);
   };
 
+  // A statement month is only "complete" once it has fully ended (the whole month
+  // is in the past). Until then its actuals are still partial, so credit-card-linked
+  // amounts should resolve to the projected (budgeted) amount instead.
+  const isMonthInPast = (year: number, month: number): boolean => {
+    const now = new Date();
+    return now.getFullYear() * 12 + now.getMonth() > year * 12 + month;
+  };
+
+  // Resolve completeness for a linked credit-card entry. Entries with an embedded
+  // year:month use it; legacy entries (no embedded month) resolve against the
+  // previous month of the viewed month (which is what creditCardHistory holds).
+  const isCardStatementComplete = (year: number | null, month: number | null): boolean => {
+    if (year === null || month === null) return isMonthInPast(prevYear, prevMonthNum);
+    return isMonthInPast(year, month);
+  };
+
+  // Current projected budget for a card, used as a fallback when a month's history
+  // record has no stored projected value yet.
+  const cardProjected = (name: string): number | undefined =>
+    creditCards.find(c => c.name === name)?.projected;
+  const cardJointProjected = (name: string): number | undefined => {
+    const card = creditCards.find(c => c.name === name);
+    if (!card) return undefined;
+    return card.jointProjected ?? card.projected;
+  };
+
+  // Resolve a credit-card personal/overall amount from a (possibly missing) history record.
+  // While the statement is still open (useProjected), take the larger of the actual-so-far
+  // and the projected budget — early in the month projected wins, but once actual spending
+  // overtakes the budget the actual wins. Once closed, the actual is final.
+  const resolveCardAmount = (
+    history: CreditCardMonthlyHistory | undefined,
+    name: string,
+    useProjected: boolean,
+    fallback: number,
+  ): number => {
+    const actual = history?.actual;
+    const projected = history?.projected ?? cardProjected(name);
+    if (useProjected) {
+      if (actual !== undefined && projected !== undefined) return Math.max(actual, projected);
+      return projected ?? actual ?? fallback;
+    }
+    return actual ?? fallback;
+  };
+
+  const resolveCardJointAmount = (
+    history: CreditCardMonthlyHistory | undefined,
+    name: string,
+    useProjected: boolean,
+    fallback: number,
+  ): number => {
+    const actual = history?.joint;
+    const projected = history?.jointProjected ?? cardJointProjected(name);
+    if (useProjected) {
+      if (actual !== undefined && projected !== undefined) return Math.max(actual, projected);
+      return projected ?? actual ?? fallback;
+    }
+    return actual ?? fallback;
+  };
+
+  // Whether a linked entry currently resolves to a projected (vs. actual) amount.
+  // Used to visually flag projected transactions in the day modal.
+  const isLinkedAmountProjected = (entry: BudgetEntry): boolean => {
+    if (!entry.linkedTo) return false;
+    const parts = entry.linkedTo.split(':');
+    const type = parts[0];
+    const year = parts[2] ? parseInt(parts[2]) : null;
+    const month = parts[3] ? parseInt(parts[3]) : null;
+    if (type === 'projected' || type === 'projectedTotal') return true;
+    if (type === 'creditCard' || type === 'creditCardJoint') {
+      return !isCardStatementComplete(year, month);
+    }
+    return false;
+  };
+
   // Get the current amount for a linked entry
   // ccHistory parameter allows overriding which credit card history is used for resolution
   // (needed for previous month balance calculation, which must use prev-prev month's history)
@@ -451,29 +526,35 @@ export default function BudgetSpreadsheet({
       }
 
       if (type === 'creditCard') {
+        // Until the statement month has fully ended (closed) the actuals are still
+        // accumulating, so take the larger of the actual-so-far and the projected budget.
+        const useProjected = !isCardStatementComplete(year, month);
         if (year !== null && month !== null) {
           const cacheKey = `${year}-${month}`;
           const cachedHistory = historyCache.get(cacheKey);
           if (cachedHistory) {
             const history = cachedHistory.find(h => h.cardName === name);
-            return history?.actual ?? entry.amount;
+            return resolveCardAmount(history, name, useProjected, entry.amount);
           }
+          if (useProjected) return cardProjected(name) ?? entry.amount;
         }
         const history = effectiveHistory.find(h => h.cardName === name);
-        return history?.actual ?? entry.amount;
+        return resolveCardAmount(history, name, useProjected, entry.amount);
       }
 
       if (type === 'creditCardJoint') {
+        const useProjected = !isCardStatementComplete(year, month);
         if (year !== null && month !== null) {
           const cacheKey = `${year}-${month}`;
           const cachedHistory = historyCache.get(cacheKey);
           if (cachedHistory) {
             const history = cachedHistory.find(h => h.cardName === name);
-            return history?.joint ?? entry.amount;
+            return resolveCardJointAmount(history, name, useProjected, entry.amount);
           }
+          if (useProjected) return cardJointProjected(name) ?? entry.amount;
         }
         const history = effectiveHistory.find(h => h.cardName === name);
-        return history?.joint ?? entry.amount;
+        return resolveCardJointAmount(history, name, useProjected, entry.amount);
       }
 
       if (type === 'monthTotal') {
@@ -854,30 +935,26 @@ export default function BudgetSpreadsheet({
         const history = historyToUse.find(h => h.cardName === card.name);
         const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
 
+        // Always embed the statement year:month and include the month in the label,
+        // even when there's no history yet (fall back to the projected budget for the
+        // amount). This keeps names consistent ("Card May (joint)") and lets
+        // getLinkedAmount detect the statement month for the projected-vs-actual rule.
         if (parsed.isJoint) {
-          if (history && history.joint > 0) {
-            return {
-              amount: history.joint,
-              description: `${card.name} ${monthName} (joint)`,
-              linkedTo: `creditCardJoint:${card.name}:${year}:${month}`,
-            };
-          }
-          // Fall back to joint projected amount if no history
+          const amount = (history && history.joint > 0)
+            ? history.joint
+            : (card.jointProjected ?? card.projected);
           return {
-            amount: card.jointProjected ?? card.projected,
-            description: `${card.name} (joint)`,
-            linkedTo: `creditCardJoint:${card.name}`,
+            amount,
+            description: `${card.name} ${monthName} (joint)`,
+            linkedTo: `creditCardJoint:${card.name}:${year}:${month}`,
           };
         } else {
-          if (history) {
-            return {
-              amount: history.actual,
-              description: `${card.name} ${monthName}`,
-              linkedTo: `creditCard:${card.name}:${year}:${month}`,
-            };
-          }
-          // Fall back to projected amount if no history
-          return { amount: card.projected, description: card.name, linkedTo: `creditCard:${card.name}` };
+          const amount = history ? history.actual : card.projected;
+          return {
+            amount,
+            description: `${card.name} ${monthName}`,
+            linkedTo: `creditCard:${card.name}:${year}:${month}`,
+          };
         }
       }
     }
@@ -1776,6 +1853,7 @@ export default function BudgetSpreadsheet({
           onSkipRecurringDeposit={handleModalSkipRecurringDeposit}
           onEditRecurringDeposit={handleModalEditRecurringDeposit}
           getLinkedAmount={getLinkedAmount}
+          isProjectedEntry={isLinkedAmountProjected}
           formatCurrency={formatCurrency}
           creditCards={creditCards}
           monthlyExpenses={monthlyExpenses}

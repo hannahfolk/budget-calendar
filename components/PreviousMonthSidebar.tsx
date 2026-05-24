@@ -478,6 +478,28 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
 
+    // Partner's joint cards: persist the shared joint fields to the PARTNER's
+    // per-month history. The user may only edit joint amounts here — the overall
+    // personal numbers belong to the partner and aren't editable on these cards.
+    if (isPartnerCard(card)) {
+      try {
+        if (field === 'jointProjected') {
+          await partnerAPI.updatePartnerHistoryJoint(card.name, year, month, undefined, value);
+        } else if (field === 'jointActual') {
+          await partnerAPI.updatePartnerHistoryJoint(card.name, year, month, value, undefined);
+        } else {
+          setEditingBudgetCard(null);
+          return;
+        }
+        const refreshed = await partnerAPI.getPartnerHistory(year, month);
+        setPartnerCurrentMonthHistory(refreshed);
+      } catch (error) {
+        console.error('Failed to save partner joint history:', error);
+      }
+      setEditingBudgetCard(null);
+      return;
+    }
+
     try {
       // Get existing history values for this card/month
       const existingHist = currentMonthHistory.find(h => h.cardName === card.name);

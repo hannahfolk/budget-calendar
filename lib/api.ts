@@ -440,6 +440,17 @@ export const partnerAPI = {
     return response.json();
   },
 
+  // Update the joint portion of a partner's credit-card history for a month.
+  async updatePartnerHistoryJoint(cardName: string, year: number, month: number, joint?: number, jointProjected?: number): Promise<CreditCardMonthlyHistory[]> {
+    const response = await fetch(`${API_URL}/api/partner/credit-card-history`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ cardName, year, month, joint, jointProjected }),
+    });
+    if (!response.ok) throw new Error('Failed to update partner history');
+    return response.json();
+  },
+
   async updatePartnerCardJoint(cardName: string, updates: { jointProjected?: number; jointActual?: number; projected?: number; actual?: number }): Promise<void> {
     const response = await fetch(`${API_URL}/api/partner/cards/${encodeURIComponent(cardName)}/joint`, {
       method: 'PUT',
