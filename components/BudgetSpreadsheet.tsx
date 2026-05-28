@@ -88,6 +88,16 @@ export default function BudgetSpreadsheet({
   const [ccHistoryLoaded, setCcHistoryLoaded] = useState(false);
   const [historyCache, setHistoryCache] = useState<Map<string, CreditCardMonthlyHistory[]>>(new Map());
   const [modalOpen, setModalOpen] = useState<{ date: Date; account: 'personal' | 'joint'; focusField: 'deposit' | 'withdrawal' } | null>(null);
+  // Apple-Calendar-style mobile UX: tapping a day cell selects it; the day-detail
+  // panel below the calendar then shows that day's sections (which open the modal).
+  const [selectedDay, setSelectedDay] = useState<Date>(() => {
+    const today = new Date();
+    return isSameMonth(today, currentMonth) ? today : startOfMonth(currentMonth);
+  });
+  useEffect(() => {
+    const today = new Date();
+    setSelectedDay(isSameMonth(today, currentMonth) ? today : startOfMonth(currentMonth));
+  }, [currentMonth]);
 
   // Month name mapping
   const MONTH_NAMES: Record<string, number> = {
@@ -1307,10 +1317,10 @@ export default function BudgetSpreadsheet({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl glass-panel p-6">
+    <div className="relative overflow-hidden rounded-xl glass-panel p-3 sm:p-4 lg:p-6">
       {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-3xl font-display font-bold mb-2 glow-text">
+      <div className="mb-4 sm:mb-6">
+        <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 glow-text">
           {format(currentMonth, 'MMMM yyyy')}
         </h2>
         <p className="text-sm text-gray-400 font-mono">
@@ -1323,6 +1333,10 @@ export default function BudgetSpreadsheet({
         )}
       </div>
 
+      {/* Calendar: fills viewport on mobile (compact cells), enforces a min-width
+          only on larger screens as a safety net for the rich Personal/Joint view. */}
+      <div className="lg:overflow-x-auto -mx-1 px-1">
+        <div className="lg:min-w-[600px]">
       {/* Weekday Headers */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {WEEKDAYS.map((day) => (
@@ -1366,7 +1380,7 @@ export default function BudgetSpreadsheet({
               <div
                 key={dayKey}
                 className={`
-                  relative min-h-[160px] p-2 rounded-lg border transition-all duration-200
+                  relative min-h-[56px] lg:min-h-[160px] p-1 lg:p-2 rounded-lg border transition-all duration-200
                   ${isCurrentMonth
                     ? 'bg-gray-800/40 border-gray-700/50 hover:bg-blue-500/10 hover:border-blue-500/30'
                     : 'bg-gray-900/20 border-gray-800/30 cursor-pointer hover:bg-gray-800/30 hover:border-gray-600/50'}
@@ -1380,20 +1394,50 @@ export default function BudgetSpreadsheet({
                   setShowingEntries(null);
                   if (!isCurrentMonth && onMonthChange) {
                     onMonthChange(startOfMonth(day));
+                  } else if (isCurrentMonth) {
+                    setSelectedDay(day);
                   }
                 }}
               >
-                {/* Day Number */}
+                {/* Day Number (desktop) */}
                 <div className={`
-                  text-sm font-bold mb-1
+                  hidden lg:block text-sm font-bold mb-1
                   ${isTodayDate ? 'text-blue-400' : isCurrentMonth ? 'text-gray-300' : 'text-gray-500'}
                 `}>
                   {format(day, 'd')}
                 </div>
 
+                {/* Mobile cell — Apple Calendar style: centered day# (circled when
+                    selected) and a small dot below if the day has any activity. */}
+                <div className="lg:hidden flex flex-col items-center justify-start pt-0.5 select-none">
+                  <span className={`
+                    text-sm font-semibold flex items-center justify-center w-7 h-7 rounded-full
+                    ${isCurrentMonth && isSameDay(day, selectedDay)
+                      ? (isTodayDate ? 'bg-blue-500 text-white' : 'bg-blue-500/40 text-white')
+                      : isTodayDate
+                        ? 'text-blue-400 ring-1 ring-blue-500/50'
+                        : isCurrentMonth ? 'text-gray-200' : 'text-gray-600'}
+                  `}>
+                    {format(day, 'd')}
+                  </span>
+                  {isCurrentMonth && (
+                    getAmountForField(day, 'personal-checking') > 0
+                    || getAmountForField(day, 'personal-deduction') > 0
+                    || getAmountForField(day, 'joint-checking') > 0
+                    || getAmountForField(day, 'joint-deduction') > 0
+                    || getRecurringDepositAmountForDay(day, 'personal') > 0
+                    || getRecurringDepositAmountForDay(day, 'joint') > 0
+                  ) && (
+                    <span className="w-1 h-1 rounded-full bg-blue-400 mt-0.5" />
+                  )}
+                </div>
+
+                {/* Desktop full view: starting balances, Personal/Joint columns, overflow days */}
+                <div className="hidden lg:block">
+
                 {/* Show starting balances on last day of previous month - only for start month (editable) */}
                 {isLastDayPrevMonth && isStartMonth && (
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
                     {/* Personal Starting Balance */}
                     <div className="border-r border-gray-700/30 pr-1">
                       <div className="text-[10px] text-gray-500 font-mono mb-0.5">Personal</div>
@@ -1452,7 +1496,7 @@ export default function BudgetSpreadsheet({
 
                 {/* Show previous month's ending balances for months after start month (read-only) */}
                 {isLastDayPrevMonth && isAfterStartMonth && (
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
                     {/* Personal Ending Balance */}
                     <div className="border-r border-gray-700/30 pr-1">
                       <div className="text-[10px] text-gray-500 font-mono mb-0.5">Personal</div>
@@ -1476,9 +1520,9 @@ export default function BudgetSpreadsheet({
                 )}
 
                 {isCurrentMonth && (
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
                     {/* Personal Column */}
-                    <div className="border-r border-gray-700/30 pr-1">
+                    <div className="min-w-0 border-b lg:border-b-0 lg:border-r border-gray-700/30 pb-1 lg:pb-0 lg:pr-1">
                       <div className="text-[10px] text-gray-500 font-mono mb-0.5">Personal</div>
 
                       {/* Deposits Section */}
@@ -1564,7 +1608,9 @@ export default function BudgetSpreadsheet({
                             );
                           }
                           const total = deposits.reduce((s, e) => s + getLinkedAmount(e), 0) + recurringDeps.reduce((s, d) => s + getDepositAmountForDate(d, day), 0);
-                          return <span className={total > 0 ? 'text-green-400' : 'text-gray-600'}>{total > 0 ? `+${formatCurrency(total)}` : '+ deposits'}</span>;
+                          return total > 0
+                            ? <span className="block truncate text-green-400">+{formatCurrency(total)}</span>
+                            : <span className="text-gray-600 text-[10px]">+ deposits</span>;
                         })()}
                       </div>
 
@@ -1616,7 +1662,9 @@ export default function BudgetSpreadsheet({
                             );
                           }
                           const total = withdrawals.reduce((s, e) => s + getLinkedAmount(e), 0);
-                          return <span className={total > 0 ? 'text-red-400' : 'text-gray-600'}>{total > 0 ? `-${formatCurrency(total)}` : '− withdrawals'}</span>;
+                          return total > 0
+                            ? <span className="block truncate text-red-400">-{formatCurrency(total)}</span>
+                            : <span className="text-gray-600 text-[10px]">− withdrawals</span>;
                         })()}
                       </div>
 
@@ -1631,7 +1679,7 @@ export default function BudgetSpreadsheet({
                     </div>
 
                     {/* Joint Column */}
-                    <div className="pl-1">
+                    <div className="min-w-0 pt-1 lg:pt-0 lg:pl-1">
                       <div className="text-[10px] text-gray-500 font-mono mb-0.5">Joint</div>
 
                       {/* Deposits Section */}
@@ -1717,7 +1765,9 @@ export default function BudgetSpreadsheet({
                             );
                           }
                           const total = deposits.reduce((s, e) => s + getLinkedAmount(e), 0) + recurringDeps.reduce((s, d) => s + getDepositAmountForDate(d, day), 0);
-                          return <span className={total > 0 ? 'text-blue-400' : 'text-gray-600'}>{total > 0 ? `+${formatCurrency(total)}` : '+ deposits'}</span>;
+                          return total > 0
+                            ? <span className="block truncate text-blue-400">+{formatCurrency(total)}</span>
+                            : <span className="text-gray-600 text-[10px]">+ deposits</span>;
                         })()}
                       </div>
 
@@ -1768,7 +1818,9 @@ export default function BudgetSpreadsheet({
                             );
                           }
                           const total = withdrawals.reduce((s, e) => s + getLinkedAmount(e), 0);
-                          return <span className={total > 0 ? 'text-orange-400' : 'text-gray-600'}>{total > 0 ? `-${formatCurrency(total)}` : '− withdrawals'}</span>;
+                          return total > 0
+                            ? <span className="block truncate text-orange-400">-{formatCurrency(total)}</span>
+                            : <span className="text-gray-600 text-[10px]">− withdrawals</span>;
                         })()}
                       </div>
 
@@ -1806,7 +1858,7 @@ export default function BudgetSpreadsheet({
                   if (!personalChanged && !jointChanged) return null;
 
                   return (
-                    <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
                       <div className="border-r border-gray-700/30 pr-1">
                         <div className="text-[10px] text-gray-500 font-mono mb-0.5">Personal</div>
                         {personalChanged && (
@@ -1830,9 +1882,81 @@ export default function BudgetSpreadsheet({
                     </div>
                   );
                 })()}
+                </div>
               </div>
             );
           })}
+      </div>
+        </div>
+      </div>
+
+      {/* Mobile day-detail panel — Apple Calendar style. Shows the selected day's
+          sections; tapping a section opens the day modal for that account/field. */}
+      <div className="lg:hidden mt-4 pt-4 border-t border-gray-700/50 space-y-4 relative">
+        <div>
+          <h3 className="text-lg font-display font-bold text-white">
+            {format(selectedDay, 'EEEE, MMMM d')}
+          </h3>
+          <p className="text-xs text-gray-500 font-mono">Tap a section to add or edit</p>
+        </div>
+
+        {/* Personal Account */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-mono text-purple-400 tracking-wider">PERSONAL ACCOUNT</div>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCellClick(selectedDay, 'personal-checking'); }}
+            className="w-full flex justify-between items-center py-2.5 px-3 rounded-lg bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 active:bg-green-500/30 transition-colors"
+          >
+            <span className="text-sm text-green-400 font-medium">+ Deposits</span>
+            <span className="text-green-400 font-mono font-semibold">
+              {formatCurrency(getAmountForField(selectedDay, 'personal-checking') + getRecurringDepositAmountForDay(selectedDay, 'personal'))}
+            </span>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCellClick(selectedDay, 'personal-deduction'); }}
+            className="w-full flex justify-between items-center py-2.5 px-3 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 active:bg-red-500/30 transition-colors"
+          >
+            <span className="text-sm text-red-400 font-medium">− Withdrawals</span>
+            <span className="text-red-400 font-mono font-semibold">
+              {formatCurrency(getAmountForField(selectedDay, 'personal-deduction'))}
+            </span>
+          </button>
+          <div className="flex justify-between items-center py-2 px-3 mt-1 border-t border-gray-700/50">
+            <span className="text-sm text-gray-400">= End balance</span>
+            <span className={`font-mono font-bold ${getEndBalance(selectedDay, 'personal') >= 0 ? 'text-purple-300' : 'text-red-400'}`}>
+              {formatCurrency(getEndBalance(selectedDay, 'personal'))}
+            </span>
+          </div>
+        </div>
+
+        {/* Joint Account */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-mono text-cyan-400 tracking-wider">JOINT ACCOUNT</div>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCellClick(selectedDay, 'joint-checking'); }}
+            className="w-full flex justify-between items-center py-2.5 px-3 rounded-lg bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 active:bg-blue-500/30 transition-colors"
+          >
+            <span className="text-sm text-blue-400 font-medium">+ Deposits</span>
+            <span className="text-blue-400 font-mono font-semibold">
+              {formatCurrency(getAmountForField(selectedDay, 'joint-checking') + getRecurringDepositAmountForDay(selectedDay, 'joint'))}
+            </span>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCellClick(selectedDay, 'joint-deduction'); }}
+            className="w-full flex justify-between items-center py-2.5 px-3 rounded-lg bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/20 active:bg-orange-500/30 transition-colors"
+          >
+            <span className="text-sm text-orange-400 font-medium">− Withdrawals</span>
+            <span className="text-orange-400 font-mono font-semibold">
+              {formatCurrency(getAmountForField(selectedDay, 'joint-deduction'))}
+            </span>
+          </button>
+          <div className="flex justify-between items-center py-2 px-3 mt-1 border-t border-gray-700/50">
+            <span className="text-sm text-gray-400">= End balance</span>
+            <span className={`font-mono font-bold ${getEndBalance(selectedDay, 'joint') >= 0 ? 'text-cyan-300' : 'text-red-400'}`}>
+              {formatCurrency(getEndBalance(selectedDay, 'joint'))}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Grid Pattern Overlay */}

@@ -219,23 +219,23 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen p-8">
+    <main className="min-h-screen p-3 sm:p-5 lg:p-8">
       {/* Header */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
+        className="mb-6 sm:mb-8"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div>
-            <h1 className="text-4xl font-display font-bold mb-1 glow-text">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold mb-1 glow-text">
               Budget Calendar
             </h1>
             <p className="text-sm font-mono text-gray-400">{user.name}</p>
           </div>
 
           {/* Month Navigation */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={handlePreviousMonth}
               disabled={!canGoPreviousMonth()}
@@ -288,28 +288,10 @@ export default function Home() {
       )}
 
       {/* Main Content */}
-      <div className="flex gap-6">
-        {/* Left Sidebar - Previous Month Credit Cards */}
-        <div className="w-80 shrink-0">
-          <PreviousMonthSidebar
-            currentMonth={currentMonth}
-            creditCards={creditCards}
-            personalCreditCards={personalCreditCards}
-            partnerCreditCards={partnerCreditCards}
-            onCreditCardsUpdate={handleCreditCardsUpdate}
-            onPersonalCreditCardsUpdate={handlePersonalCreditCardsUpdate}
-            onPartnerCreditCardsUpdate={setPartnerCreditCards}
-            userCreatedAt={user.createdAt}
-            userName={user.name}
-            partnerName={user.partnerName}
-            hasPartner={!!user.partnerId}
-            partnerJointCardNames={partnerJointCardNames}
-            userId={user.id}
-          />
-        </div>
-
+      {/* Phone: single column (calendar first). lg: calendar full-width with sidebars 2-up below. 2xl: classic 3-column. */}
+      <div className="flex flex-col 2xl:flex-row 2xl:items-start gap-4 2xl:gap-6">
         {/* Calendar */}
-        <div className="flex-1">
+        <div className="order-1 2xl:order-2 flex-1 min-w-0">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
@@ -344,18 +326,40 @@ export default function Home() {
           )}
         </div>
 
-        {/* Right Sidebar */}
-        <div className="w-80 shrink-0">
-          <ExpensesSidebar
-            expenses={expenses}
-            partnerJointExpenses={partnerJointExpenses}
-            recurringDeposits={recurringDeposits}
-            onExpensesUpdate={handleExpensesUpdate}
-            onDepositsUpdate={handleDepositsUpdate}
-            hasPartner={!!user.partnerId}
-            partnerName={user.partnerName}
-            onPartnerLinked={() => window.location.reload()}
-          />
+        {/* Sidebars: stacked on phones, 2-up on large screens, separate side columns at 2xl */}
+        <div className="order-2 grid grid-cols-1 lg:grid-cols-2 gap-4 2xl:contents">
+          {/* Left Sidebar - Previous Month Credit Cards */}
+          <div className="2xl:order-1 2xl:w-80 2xl:shrink-0">
+            <PreviousMonthSidebar
+              currentMonth={currentMonth}
+              creditCards={creditCards}
+              personalCreditCards={personalCreditCards}
+              partnerCreditCards={partnerCreditCards}
+              onCreditCardsUpdate={handleCreditCardsUpdate}
+              onPersonalCreditCardsUpdate={handlePersonalCreditCardsUpdate}
+              onPartnerCreditCardsUpdate={setPartnerCreditCards}
+              userCreatedAt={user.createdAt}
+              userName={user.name}
+              partnerName={user.partnerName}
+              hasPartner={!!user.partnerId}
+              partnerJointCardNames={partnerJointCardNames}
+              userId={user.id}
+            />
+          </div>
+
+          {/* Right Sidebar */}
+          <div className="2xl:order-3 2xl:w-80 2xl:shrink-0">
+            <ExpensesSidebar
+              expenses={expenses}
+              partnerJointExpenses={partnerJointExpenses}
+              recurringDeposits={recurringDeposits}
+              onExpensesUpdate={handleExpensesUpdate}
+              onDepositsUpdate={handleDepositsUpdate}
+              hasPartner={!!user.partnerId}
+              partnerName={user.partnerName}
+              onPartnerLinked={() => window.location.reload()}
+            />
+          </div>
         </div>
       </div>
 

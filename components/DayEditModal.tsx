@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { format, subMonths } from 'date-fns';
 import { BudgetEntry, RecurringDeposit, CreditCard, MonthlyExpense } from '@/lib/api';
 import { getDepositAmountForDate } from '@/lib/deposits';
@@ -49,6 +50,9 @@ export default function DayEditModal({
   const [editingDepositAmount, setEditingDepositAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingButton, setSubmittingButton] = useState<string | null>(null);
+  // Portal must mount client-side; gate render until we know `document` exists
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const depositInputRef = useRef<HTMLInputElement>(null);
   const withdrawalInputRef = useRef<HTMLInputElement>(null);
 
@@ -166,18 +170,19 @@ export default function DayEditModal({
   };
 
   if (!isOpen) return null;
+  if (!mounted) return null;
 
   const isPersonal = account === 'personal';
   const hasDepositQuickActions = depositCardButtons.length > 0 || filteredDepositExpenses.length > 0;
   const hasWithdrawalQuickActions = withdrawalCardButtons.length > 0 || filteredWithdrawalExpenses.length > 0;
 
-  return (
+  return createPortal(
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"
         onClick={onClose}
       >
         <motion.div
@@ -480,6 +485,7 @@ export default function DayEditModal({
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
