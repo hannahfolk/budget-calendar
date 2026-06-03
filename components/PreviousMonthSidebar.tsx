@@ -35,6 +35,9 @@ interface Props {
   hasPartner?: boolean; // Whether user has a linked partner
   partnerJointCardNames?: string[]; // Names of joint cards that came from the partner
   userId?: string; // Current user's ID for identifying partner-added items
+  // Fired after this sidebar successfully writes to credit-card history so the
+  // calendar (which keeps its own historyCache) can refetch and stay in sync.
+  onHistoryUpdate?: () => void;
 }
 
 // Sortable wrapper component for history (with render prop for drag handle)
@@ -113,7 +116,7 @@ const formatClosingDay = (closingDay: number): string => {
   return `${closingDay}${getOrdinalSuffix(closingDay)}`;
 };
 
-export default function PreviousMonthSidebar({ currentMonth, creditCards, personalCreditCards, partnerCreditCards = [], onCreditCardsUpdate, onPersonalCreditCardsUpdate, onPartnerCreditCardsUpdate, userCreatedAt, userName, partnerName, hasPartner, partnerJointCardNames = [], userId }: Props) {
+export default function PreviousMonthSidebar({ currentMonth, creditCards, personalCreditCards, partnerCreditCards = [], onCreditCardsUpdate, onPersonalCreditCardsUpdate, onPartnerCreditCardsUpdate, userCreatedAt, userName, partnerName, hasPartner, partnerJointCardNames = [], userId, onHistoryUpdate }: Props) {
   const [history, setHistory] = useState<CreditCardMonthlyHistory[]>([]);
   const [currentMonthHistory, setCurrentMonthHistory] = useState<CreditCardMonthlyHistory[]>([]);
   const [partnerHistory, setPartnerHistory] = useState<CreditCardMonthlyHistory[]>([]);
@@ -406,12 +409,20 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
       return;
     }
     try {
-      if (column === 'personal') {
+      // Joint edits on a partner-owned card must persist to the PARTNER's history,
+      // otherwise the partner reads their own history and never sees the edit.
+      // The personal column is blanked out for partner cards in the UI, so we only
+      // need to special-case the joint column here.
+      const card = creditCards.find(c => c.name === cardName);
+      if (column === 'joint' && card && isPartnerCard(card)) {
+        await partnerAPI.updatePartnerHistoryJoint(cardName, prevYear, prevMonthNum, amount, undefined);
+      } else if (column === 'personal') {
         await creditCardHistoryAPI.updateHistory(cardName, prevYear, prevMonthNum, amount, undefined);
       } else {
         await creditCardHistoryAPI.updateHistory(cardName, prevYear, prevMonthNum, undefined, amount);
       }
       await fetchHistory();
+      onHistoryUpdate?.();
     } catch (error) {
       console.error('Failed to update history:', error);
     }
@@ -493,6 +504,7 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
         }
         const refreshed = await partnerAPI.getPartnerHistory(year, month);
         setPartnerCurrentMonthHistory(refreshed);
+        onHistoryUpdate?.();
       } catch (error) {
         console.error('Failed to save partner joint history:', error);
       }
@@ -525,6 +537,7 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
       // Refresh history data
       const refreshed = await creditCardHistoryAPI.getHistory(year, month);
       setCurrentMonthHistory(refreshed);
+      onHistoryUpdate?.();
     } catch (error) {
       console.error('Failed to save budget to history:', error);
     }
@@ -708,6 +721,7 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
         );
         onPartnerCreditCardsUpdate(updated);
       }
+      onHistoryUpdate?.();
     } catch (error) {
       console.error('Failed to update partner card:', error);
     }

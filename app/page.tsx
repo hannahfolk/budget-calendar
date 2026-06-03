@@ -25,6 +25,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped whenever the sidebar writes to credit-card history. The calendar
+  // watches this so its own historyCache refetches and stays in sync.
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const bumpHistoryRefresh = () => setHistoryRefreshKey((k) => k + 1);
 
   const { user, loading: authLoading, updateExpenses, updateStartingBalances, updateRecurringDeposits, updateCreditCards, updatePersonalCreditCards } = useAuth();
   const router = useRouter();
@@ -316,6 +320,7 @@ export default function Home() {
               userCreatedAt={user.createdAt}
               hasPartner={!!user.partnerId}
               partnerJointCardNames={partnerJointCardNames}
+              historyRefreshKey={historyRefreshKey}
               onMonthChange={(newMonth) => {
                 const currentStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
                 const targetStart = new Date(newMonth.getFullYear(), newMonth.getMonth(), 1);
@@ -344,6 +349,7 @@ export default function Home() {
               hasPartner={!!user.partnerId}
               partnerJointCardNames={partnerJointCardNames}
               userId={user.id}
+              onHistoryUpdate={bumpHistoryRefresh}
             />
           </div>
 

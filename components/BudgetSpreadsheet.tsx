@@ -35,6 +35,10 @@ interface Props {
   hasPartner?: boolean;
   partnerJointCardNames?: string[];
   onMonthChange?: (newMonth: Date) => void;
+  // Bumped by the parent when credit-card history is edited elsewhere (e.g. the
+  // sidebar). The history-fetching effect re-runs on changes so the calendar
+  // doesn't show a stale value after another component writes to history.
+  historyRefreshKey?: number;
 }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -76,6 +80,7 @@ export default function BudgetSpreadsheet({
   hasPartner,
   partnerJointCardNames = [],
   onMonthChange,
+  historyRefreshKey = 0,
 }: Props) {
   const [editingCell, setEditingCell] = useState<{ dateKey: string; field: AccountField } | null>(null);
   const [editingBalance, setEditingBalance] = useState<'personal' | 'joint' | null>(null);
@@ -215,27 +220,27 @@ export default function BudgetSpreadsheet({
           }
         }
 
-        // Store all in historyCache, merging partner history for partner cards
-        const newCache = new Map(historyCache);
-        unique.forEach((f, i) => {
-          let merged = [...results[i]];
-          if (hasPartner && partnerResults[i]) {
-            // For partner cards, use partner's history (it has the real values)
-            for (const partnerHist of partnerResults[i]) {
-              if (partnerJointCardNames.includes(partnerHist.cardName)) {
-                // Replace user's entry with partner's for this card
-                const existingIdx = merged.findIndex(h => h.cardName === partnerHist.cardName);
-                if (existingIdx >= 0) {
-                  merged[existingIdx] = partnerHist;
-                } else {
-                  merged.push(partnerHist);
+        // Store all in historyCache, merging partner history for partner cards.
+        // Use the functional setter so we layer fresh values on whatever the cache
+        // currently holds — important when this effect re-runs because of a
+        // historyRefreshKey bump (e.g. the sidebar just wrote a new joint value).
+        setHistoryCache((prev) => {
+          const newCache = new Map(prev);
+          unique.forEach((f, i) => {
+            let merged = [...results[i]];
+            if (hasPartner && partnerResults[i]) {
+              for (const partnerHist of partnerResults[i]) {
+                if (partnerJointCardNames.includes(partnerHist.cardName)) {
+                  const existingIdx = merged.findIndex(h => h.cardName === partnerHist.cardName);
+                  if (existingIdx >= 0) merged[existingIdx] = partnerHist;
+                  else merged.push(partnerHist);
                 }
               }
             }
-          }
-          newCache.set(`${f.year}-${f.month}`, merged);
+            newCache.set(`${f.year}-${f.month}`, merged);
+          });
+          return newCache;
         });
-        setHistoryCache(newCache);
 
         // Set the primary creditCardHistory (for current month's getLinkedAmount)
         const primaryIdx = unique.findIndex(f => f.year === prevYear && f.month === prevMonthNum);
@@ -248,7 +253,9 @@ export default function BudgetSpreadsheet({
       }
     };
     fetchHistories();
-  }, [prevYear, prevMonthNum, userStartYear, userStartMonth]);
+    // historyRefreshKey is included so the parent can force a refetch after the
+    // sidebar (or any other writer) edits a credit-card history record.
+  }, [prevYear, prevMonthNum, userStartYear, userStartMonth, historyRefreshKey]);
 
 
 
