@@ -14,6 +14,19 @@ export async function PUT(req: NextRequest) {
     const user = await User.findById(auth.userId);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
+    // Reject writes for cards the user doesn't own. Joint cards owned by the
+    // partner must be edited through /api/partner/credit-card-history so the
+    // canonical owner's record stays the single source of truth.
+    const ownsCard =
+      user.creditCards.some((c: any) => c.name === cardName) ||
+      user.personalCreditCards.some((c: any) => c.name === cardName);
+    if (!ownsCard) {
+      return NextResponse.json(
+        { error: 'Card is not owned by this user' },
+        { status: 403 }
+      );
+    }
+
     const existingIndex = user.creditCardHistory.findIndex(
       (h: any) => h.cardName === cardName && h.year === year && h.month === month
     );
@@ -43,6 +56,23 @@ export async function PUT(req: NextRequest) {
       if (typeof projected === 'number') newEntry.projected = projected;
       if (typeof jointProjected === 'number') newEntry.jointProjected = jointProjected;
       user.creditCardHistory.push(newEntry);
+    }
+
+    // Keep the card object's joint fields in sync with the joint history values
+    // so partner sessions (which read partner.creditCards via buildUserResponse)
+    // see up-to-date joint amounts instead of stale onboarding defaults.
+    if (typeof joint === 'number' || typeof jointProjected === 'number') {
+      const jointIdx = user.creditCards.findIndex((c: any) => c.name === cardName);
+      const personalIdx = user.personalCreditCards.findIndex((c: any) => c.name === cardName);
+      if (jointIdx >= 0) {
+        if (typeof joint === 'number') user.creditCards[jointIdx].jointActual = joint;
+        if (typeof jointProjected === 'number') user.creditCards[jointIdx].jointProjected = jointProjected;
+        user.markModified('creditCards');
+      } else if (personalIdx >= 0) {
+        if (typeof joint === 'number') user.personalCreditCards[personalIdx].jointActual = joint;
+        if (typeof jointProjected === 'number') user.personalCreditCards[personalIdx].jointProjected = jointProjected;
+        user.markModified('personalCreditCards');
+      }
     }
 
     await user.save();

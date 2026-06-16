@@ -242,9 +242,22 @@ export default function BudgetSpreadsheet({
           return newCache;
         });
 
-        // Set the primary creditCardHistory (for current month's getLinkedAmount)
+        // Set the primary creditCardHistory (for current month's getLinkedAmount).
+        // Merge partner history for partner-owned joint cards so legacy entries
+        // (without an embedded year/month in linkedTo) that fall through to
+        // creditCardHistory still resolve to the canonical owner's values.
         const primaryIdx = unique.findIndex(f => f.year === prevYear && f.month === prevMonthNum);
-        setCreditCardHistory(results[primaryIdx] ?? []);
+        let primary = [...(results[primaryIdx] ?? [])];
+        if (hasPartner && partnerResults[primaryIdx]) {
+          for (const partnerHist of partnerResults[primaryIdx]) {
+            if (partnerJointCardNames.includes(partnerHist.cardName)) {
+              const idx = primary.findIndex(h => h.cardName === partnerHist.cardName);
+              if (idx >= 0) primary[idx] = partnerHist;
+              else primary.push(partnerHist);
+            }
+          }
+        }
+        setCreditCardHistory(primary);
 
         setCcHistoryLoaded(true);
       } catch (error) {
@@ -255,7 +268,11 @@ export default function BudgetSpreadsheet({
     fetchHistories();
     // historyRefreshKey is included so the parent can force a refetch after the
     // sidebar (or any other writer) edits a credit-card history record.
-  }, [prevYear, prevMonthNum, userStartYear, userStartMonth, historyRefreshKey]);
+    // partnerJointCardNames is included so partner history gets merged once the
+    // partner card list loads — otherwise the first fetch runs with an empty
+    // list and the cache never gets partner overrides for joint cards owned by
+    // the other partner.
+  }, [prevYear, prevMonthNum, userStartYear, userStartMonth, historyRefreshKey, hasPartner, partnerJointCardNames.join('|')]);
 
 
 

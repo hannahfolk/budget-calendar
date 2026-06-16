@@ -112,14 +112,14 @@ export default function DayEditModal({
   const filteredWithdrawalExpenses = relevantExpenses.filter(e => !isExpenseUsed(e.name));
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && mounted) {
       if (focusField === 'withdrawal' && withdrawalInputRef.current) {
         withdrawalInputRef.current.focus();
       } else if (depositInputRef.current) {
         depositInputRef.current.focus();
       }
     }
-  }, [isOpen, focusField]);
+  }, [isOpen, focusField, mounted]);
 
   const handleAddDeposit = async () => {
     if (!depositValue.trim() || isSubmitting) return;

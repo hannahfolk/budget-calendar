@@ -53,6 +53,23 @@ export async function PUT(req: NextRequest) {
       partner.creditCardHistory.push(newEntry);
     }
 
+    // Keep the partner's card object's joint fields in sync with the history
+    // values so the partner's own session (which reads their own creditCards
+    // directly) sees the new joint amounts immediately on next login/refresh.
+    if (typeof joint === 'number' || typeof jointProjected === 'number') {
+      const jointIdx = partner.creditCards.findIndex((c: any) => c.name === cardName);
+      const personalIdx = partner.personalCreditCards.findIndex((c: any) => c.name === cardName);
+      if (jointIdx >= 0) {
+        if (typeof joint === 'number') partner.creditCards[jointIdx].jointActual = joint;
+        if (typeof jointProjected === 'number') partner.creditCards[jointIdx].jointProjected = jointProjected;
+        partner.markModified('creditCards');
+      } else if (personalIdx >= 0) {
+        if (typeof joint === 'number') partner.personalCreditCards[personalIdx].jointActual = joint;
+        if (typeof jointProjected === 'number') partner.personalCreditCards[personalIdx].jointProjected = jointProjected;
+        partner.markModified('personalCreditCards');
+      }
+    }
+
     await partner.save();
     const result = partner.creditCardHistory.filter(
       (h: any) => h.year === year && h.month === month

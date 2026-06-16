@@ -287,8 +287,11 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
       // so syncing them would overwrite history with wrong data.
       if (!isStartMonth && !isPreviousMonthInPast) {
         // For each card, check if closing date has passed
-        // If it has, save actual values to history (only if not already saved)
-        for (const card of creditCards) {
+        // If it has, save actual values to history (only if not already saved).
+        // Skip partner-owned cards: their joint values live on the partner's
+        // document (single source of truth) and writing here would create a
+        // stale duplicate that diverges from the canonical record.
+        for (const card of creditCards.filter(c => !isPartnerCard(c))) {
           const today = new Date();
           const actualDay = getActualClosingDay(card.closingDay, currentMonth.getFullYear(), currentMonth.getMonth());
           const closingDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), actualDay);
@@ -339,8 +342,10 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
       );
 
       // Auto-initialize history for cards that don't have an entry for this month yet
-      // This ensures every viewed month gets per-month snapshots stored in the database
-      const allCards = [...creditCards, ...personalCreditCards];
+      // This ensures every viewed month gets per-month snapshots stored in the database.
+      // Skip partner-owned joint cards — their history lives on the partner's
+      // document (single source of truth), so writing here would duplicate it.
+      const allCards = [...creditCards, ...personalCreditCards].filter(c => !isPartnerCard(c));
       let currentMonthUpdated = false;
       for (const card of allCards) {
         if (!currentMonthData.find(h => h.cardName === card.name)) {

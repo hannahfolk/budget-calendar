@@ -63,16 +63,24 @@ export default function Home() {
       })) as CreditCard[];
       setPersonalCreditCards(personalCardsWithAccount);
 
-      // Fetch partner's credit cards if user has a partner
-      // Partner's joint cards are already merged into user.creditCards via /api/auth/me
-      // We fetch partner's personal cards separately for display
+      // Joint cards where the partner is the canonical owner. Used by the
+      // calendar/sidebar to fetch joint history from the partner's record
+      // (single source of truth) rather than the user's own duplicate. Derive
+      // from the merged creditCards (buildUserResponse stamps addedBy) so we
+      // never pull from raw partner.creditCards, which would include duplicates
+      // the user already canonically owns.
+      const partnerOwnedJointCardNames = cardsWithAccount
+        .filter(c => c.addedBy && c.addedBy === user.partnerId)
+        .map(c => c.name);
+      setPartnerJointCardNames(partnerOwnedJointCardNames);
+
+      // Fetch partner's personal cards (for the "Partner's Personal Cards"
+      // section). Joint cards are resolved above from the merged user payload.
       if (user.partnerId) {
         partnerAPI.getPartner().then(({ partner }) => {
           if (partner) {
             const partnerPersonalCards = partner.personalCreditCards || [];
             setPartnerCreditCards(partnerPersonalCards);
-            // Track partner's joint card names for "Partner's" tag
-            setPartnerJointCardNames((partner.creditCards || []).map(c => c.name));
           }
         }).catch(err => {
           console.error('Failed to fetch partner data:', err);
