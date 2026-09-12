@@ -98,36 +98,39 @@ export default function Home() {
       }
       setError(null);
 
-      // Fetch current month entries
+      // Fetch current month, previous-chain, and next month entries in parallel
+      // instead of one after another — three sequential round trips was adding
+      // avoidable delay before the calendar's amounts could render.
       const currentStartDate = startOfMonth(currentMonth);
       const currentEndDate = endOfMonth(currentMonth);
-
-      const entriesData = await budgetAPI.getEntries({
-        startDate: currentStartDate.toISOString(),
-        endDate: currentEndDate.toISOString(),
-      });
-      setEntries(entriesData);
 
       // Fetch all entries from user's start month through previous month
       // (needed to chain running balances correctly across months)
       const userStart = user.createdAt ? startOfMonth(new Date(user.createdAt)) : startOfMonth(currentMonth);
       const prevEndDate = endOfMonth(subMonths(currentMonth, 1));
 
-      const prevEntriesData = await budgetAPI.getEntries({
-        startDate: userStart.toISOString(),
-        endDate: prevEndDate.toISOString(),
-      });
-      setPreviousMonthEntries(prevEntriesData);
-
       // Fetch next month entries (for displaying preview on trailing days)
       const nextMonth = addMonths(currentMonth, 1);
       const nextStartDate = startOfMonth(nextMonth);
       const nextEndDate = endOfMonth(nextMonth);
 
-      const nextEntriesData = await budgetAPI.getEntries({
-        startDate: nextStartDate.toISOString(),
-        endDate: nextEndDate.toISOString(),
-      });
+      const [entriesData, prevEntriesData, nextEntriesData] = await Promise.all([
+        budgetAPI.getEntries({
+          startDate: currentStartDate.toISOString(),
+          endDate: currentEndDate.toISOString(),
+        }),
+        budgetAPI.getEntries({
+          startDate: userStart.toISOString(),
+          endDate: prevEndDate.toISOString(),
+        }),
+        budgetAPI.getEntries({
+          startDate: nextStartDate.toISOString(),
+          endDate: nextEndDate.toISOString(),
+        }),
+      ]);
+
+      setEntries(entriesData);
+      setPreviousMonthEntries(prevEntriesData);
       setNextMonthEntries(nextEntriesData);
     } catch (err) {
       setError('Failed to load budget data. Make sure the backend server is running.');

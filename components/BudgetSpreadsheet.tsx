@@ -174,11 +174,19 @@ export default function BudgetSpreadsheet({
 
   // previousMonthEndingBalances and previousMonthDayBalances are calculated further below
 
+  // Tracks the historyRefreshKey we last fetched for, so we can tell "the parent
+  // just told us a history record changed" apart from an ordinary month
+  // navigation. Only the former should bust the cache.
+  const lastHistoryRefreshKeyRef = useRef(historyRefreshKey);
+
   // Fetch credit card history for all months needed:
   // - Previous month (for current month's getLinkedAmount)
   // - All months from (startMonth - 1) through (previousMonth - 1) for chaining previous month balances
   useEffect(() => {
     setCcHistoryLoaded(false);
+    const forceRefresh = historyRefreshKey !== lastHistoryRefreshKeyRef.current;
+    lastHistoryRefreshKeyRef.current = historyRefreshKey;
+
     const fetchHistories = async () => {
       try {
         // Build list of all months we need credit card history for
@@ -203,8 +211,27 @@ export default function BudgetSpreadsheet({
           arr.findIndex(x => x.year === f.year && x.month === f.month) === i
         );
 
+        // Skip months we've already fetched and cached — without this, every
+        // month navigation re-fetched the *entire* history chain back to the
+        // user's start month (one request per month, doubled with a partner),
+        // which is what caused the calendar's amounts to visibly lag in on
+        // every click as accounts aged. A forced refresh (historyRefreshKey
+        // bump from the sidebar editing a record) still re-fetches everything
+        // so edits aren't masked by stale cache entries.
+        const needsFetch = forceRefresh
+          ? unique
+          : unique.filter(f => !historyCache.has(`${f.year}-${f.month}`));
+
+        const primaryCacheKey = `${prevYear}-${prevMonthNum}`;
+
+        if (needsFetch.length === 0) {
+          setCreditCardHistory(historyCache.get(primaryCacheKey) ?? []);
+          setCcHistoryLoaded(true);
+          return;
+        }
+
         const results = await Promise.all(
-          unique.map(f => creditCardHistoryAPI.getHistory(f.year, f.month))
+          needsFetch.map(f => creditCardHistoryAPI.getHistory(f.year, f.month))
         );
 
         // Also fetch partner history and merge for partner cards
@@ -212,51 +239,42 @@ export default function BudgetSpreadsheet({
         if (hasPartner) {
           try {
             partnerResults = await Promise.all(
-              unique.map(f => partnerAPI.getPartnerHistory(f.year, f.month))
+              needsFetch.map(f => partnerAPI.getPartnerHistory(f.year, f.month))
             );
           } catch (err) {
             console.error('Failed to fetch partner history:', err);
-            partnerResults = unique.map(() => []);
+            partnerResults = needsFetch.map(() => []);
           }
         }
 
-        // Store all in historyCache, merging partner history for partner cards.
-        // Use the functional setter so we layer fresh values on whatever the cache
-        // currently holds — important when this effect re-runs because of a
-        // historyRefreshKey bump (e.g. the sidebar just wrote a new joint value).
-        setHistoryCache((prev) => {
-          const newCache = new Map(prev);
-          unique.forEach((f, i) => {
-            let merged = [...results[i]];
-            if (hasPartner && partnerResults[i]) {
-              for (const partnerHist of partnerResults[i]) {
-                if (partnerJointCardNames.includes(partnerHist.cardName)) {
-                  const existingIdx = merged.findIndex(h => h.cardName === partnerHist.cardName);
-                  if (existingIdx >= 0) merged[existingIdx] = partnerHist;
-                  else merged.push(partnerHist);
-                }
+        // Merge partner history for partner cards into each freshly-fetched month.
+        const freshEntries = new Map<string, CreditCardMonthlyHistory[]>();
+        needsFetch.forEach((f, i) => {
+          let merged = [...results[i]];
+          if (hasPartner && partnerResults[i]) {
+            for (const partnerHist of partnerResults[i]) {
+              if (partnerJointCardNames.includes(partnerHist.cardName)) {
+                const existingIdx = merged.findIndex(h => h.cardName === partnerHist.cardName);
+                if (existingIdx >= 0) merged[existingIdx] = partnerHist;
+                else merged.push(partnerHist);
               }
             }
-            newCache.set(`${f.year}-${f.month}`, merged);
-          });
+          }
+          freshEntries.set(`${f.year}-${f.month}`, merged);
+        });
+
+        // Store the freshly-fetched months in historyCache. Use the functional
+        // setter so we layer fresh values on whatever the cache currently holds.
+        setHistoryCache((prev) => {
+          const newCache = new Map(prev);
+          freshEntries.forEach((merged, key) => newCache.set(key, merged));
           return newCache;
         });
 
-        // Set the primary creditCardHistory (for current month's getLinkedAmount).
-        // Merge partner history for partner-owned joint cards so legacy entries
-        // (without an embedded year/month in linkedTo) that fall through to
-        // creditCardHistory still resolve to the canonical owner's values.
-        const primaryIdx = unique.findIndex(f => f.year === prevYear && f.month === prevMonthNum);
-        let primary = [...(results[primaryIdx] ?? [])];
-        if (hasPartner && partnerResults[primaryIdx]) {
-          for (const partnerHist of partnerResults[primaryIdx]) {
-            if (partnerJointCardNames.includes(partnerHist.cardName)) {
-              const idx = primary.findIndex(h => h.cardName === partnerHist.cardName);
-              if (idx >= 0) primary[idx] = partnerHist;
-              else primary.push(partnerHist);
-            }
-          }
-        }
+        // Set the primary creditCardHistory (for current month's getLinkedAmount),
+        // preferring the freshly-fetched value but falling back to whatever was
+        // already cached (e.g. when only other months in the chain needed fetching).
+        const primary = freshEntries.get(primaryCacheKey) ?? historyCache.get(primaryCacheKey) ?? [];
         setCreditCardHistory(primary);
 
         setCcHistoryLoaded(true);
