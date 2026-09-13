@@ -12,6 +12,13 @@ import { motion } from 'framer-motion';
 
 export default function Home() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  // The month actually reflected by entries/previousMonthEntries/nextMonthEntries.
+  // Kept separate from currentMonth so the calendar only advances once its data has
+  // arrived, instead of instantly rendering the new month's dates against the old
+  // month's (mismatched) entries — which briefly produced garbage running balances
+  // before flashing to the correct ones a moment later.
+  const [displayMonth, setDisplayMonth] = useState(currentMonth);
+  const latestRequestedMonthRef = useRef(currentMonth);
   const [entries, setEntries] = useState<BudgetEntry[]>([]);
   const [previousMonthEntries, setPreviousMonthEntries] = useState<BudgetEntry[]>([]);
   const [nextMonthEntries, setNextMonthEntries] = useState<BudgetEntry[]>([]);
@@ -92,6 +99,11 @@ export default function Home() {
   const fetchData = async () => {
     if (!user) return;
 
+    // Snapshot the month this call is fetching for. currentMonth may change again
+    // (another navigation) before this resolves, so we compare against
+    // latestRequestedMonthRef below and drop the response if it's no longer current.
+    const targetMonth = currentMonth;
+
     try {
       if (!hasLoadedOnce.current) {
         setLoading(true);
@@ -101,16 +113,16 @@ export default function Home() {
       // Fetch current month, previous-chain, and next month entries in parallel
       // instead of one after another — three sequential round trips was adding
       // avoidable delay before the calendar's amounts could render.
-      const currentStartDate = startOfMonth(currentMonth);
-      const currentEndDate = endOfMonth(currentMonth);
+      const currentStartDate = startOfMonth(targetMonth);
+      const currentEndDate = endOfMonth(targetMonth);
 
       // Fetch all entries from user's start month through previous month
       // (needed to chain running balances correctly across months)
-      const userStart = user.createdAt ? startOfMonth(new Date(user.createdAt)) : startOfMonth(currentMonth);
-      const prevEndDate = endOfMonth(subMonths(currentMonth, 1));
+      const userStart = user.createdAt ? startOfMonth(new Date(user.createdAt)) : startOfMonth(targetMonth);
+      const prevEndDate = endOfMonth(subMonths(targetMonth, 1));
 
       // Fetch next month entries (for displaying preview on trailing days)
-      const nextMonth = addMonths(currentMonth, 1);
+      const nextMonth = addMonths(targetMonth, 1);
       const nextStartDate = startOfMonth(nextMonth);
       const nextEndDate = endOfMonth(nextMonth);
 
@@ -129,9 +141,16 @@ export default function Home() {
         }),
       ]);
 
+      // If the user navigated again while this was in flight, let the newer
+      // request's response win instead of clobbering it with stale data.
+      if (!isSameMonth(targetMonth, latestRequestedMonthRef.current)) {
+        return;
+      }
+
       setEntries(entriesData);
       setPreviousMonthEntries(prevEntriesData);
       setNextMonthEntries(nextEntriesData);
+      setDisplayMonth(targetMonth);
     } catch (err) {
       setError('Failed to load budget data. Make sure the backend server is running.');
       console.error('Error fetching data:', err);
@@ -142,6 +161,7 @@ export default function Home() {
   };
 
   useEffect(() => {
+    latestRequestedMonthRef.current = currentMonth;
     if (user) {
       fetchData();
     }
@@ -306,7 +326,9 @@ export default function Home() {
       {/* Phone: single column (calendar first). lg: calendar full-width with sidebars 2-up below. 2xl: classic 3-column. */}
       <div className="flex flex-col 2xl:flex-row 2xl:items-start gap-4 2xl:gap-6">
         {/* Calendar */}
-        <div className="order-1 2xl:order-2 flex-1 min-w-0">
+        <div className={`order-1 2xl:order-2 flex-1 min-w-0 transition-opacity duration-150 ${
+          !loading && !isSameMonth(currentMonth, displayMonth) ? 'opacity-50 pointer-events-none' : ''
+        }`}>
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
@@ -316,7 +338,7 @@ export default function Home() {
             </div>
           ) : (
             <BudgetSpreadsheet
-              currentMonth={currentMonth}
+              currentMonth={displayMonth}
               entries={entries}
               previousMonthEntries={previousMonthEntries}
               nextMonthEntries={nextMonthEntries}
