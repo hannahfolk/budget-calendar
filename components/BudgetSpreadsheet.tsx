@@ -89,8 +89,6 @@ export default function BudgetSpreadsheet({
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [showingEntries, setShowingEntries] = useState<{ dateKey: string; field: AccountField } | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
-  const [creditCardHistory, setCreditCardHistory] = useState<CreditCardMonthlyHistory[]>([]);
-  const [ccHistoryLoaded, setCcHistoryLoaded] = useState(false);
   const [historyCache, setHistoryCache] = useState<Map<string, CreditCardMonthlyHistory[]>>(new Map());
   const [modalOpen, setModalOpen] = useState<{ date: Date; account: 'personal' | 'joint'; focusField: 'deposit' | 'withdrawal' } | null>(null);
   // Apple-Calendar-style mobile UX: tapping a day cell selects it; the day-detail
@@ -157,6 +155,13 @@ export default function BudgetSpreadsheet({
   const previousMonth = subMonths(currentMonth, 1);
   const prevYear = previousMonth.getFullYear();
   const prevMonthNum = previousMonth.getMonth();
+  const primaryCacheKey = `${prevYear}-${prevMonthNum}`;
+  // Derived straight from historyCache (not its own state) so a month we've already
+  // cached is available on the very first render after navigating to it — no need to
+  // wait a render tick for an effect to copy it over, which is what let the previous
+  // month's card amounts flash briefly before the correct ones took over.
+  const creditCardHistory = historyCache.get(primaryCacheKey) ?? [];
+  const isPrimaryHistoryReady = historyCache.has(primaryCacheKey);
 
   // Calculate next month for preview
   const nextMonth = addMonths(currentMonth, 1);
@@ -183,7 +188,6 @@ export default function BudgetSpreadsheet({
   // - Previous month (for current month's getLinkedAmount)
   // - All months from (startMonth - 1) through (previousMonth - 1) for chaining previous month balances
   useEffect(() => {
-    setCcHistoryLoaded(false);
     const forceRefresh = historyRefreshKey !== lastHistoryRefreshKeyRef.current;
     lastHistoryRefreshKeyRef.current = historyRefreshKey;
 
@@ -222,11 +226,9 @@ export default function BudgetSpreadsheet({
           ? unique
           : unique.filter(f => !historyCache.has(`${f.year}-${f.month}`));
 
-        const primaryCacheKey = `${prevYear}-${prevMonthNum}`;
-
         if (needsFetch.length === 0) {
-          setCreditCardHistory(historyCache.get(primaryCacheKey) ?? []);
-          setCcHistoryLoaded(true);
+          // Already cached — creditCardHistory (derived from historyCache) already
+          // reflects this month, nothing further to do.
           return;
         }
 
@@ -271,16 +273,8 @@ export default function BudgetSpreadsheet({
           return newCache;
         });
 
-        // Set the primary creditCardHistory (for current month's getLinkedAmount),
-        // preferring the freshly-fetched value but falling back to whatever was
-        // already cached (e.g. when only other months in the chain needed fetching).
-        const primary = freshEntries.get(primaryCacheKey) ?? historyCache.get(primaryCacheKey) ?? [];
-        setCreditCardHistory(primary);
-
-        setCcHistoryLoaded(true);
       } catch (error) {
         console.error('Failed to fetch credit card history:', error);
-        setCcHistoryLoaded(true);
       }
     };
     fetchHistories();
@@ -799,7 +793,7 @@ export default function BudgetSpreadsheet({
     if (!isAfterStartMonth && !isStartMonth) return emptyResult;
 
     // Don't compute with stale history — return cached result until fresh data is loaded
-    if (!ccHistoryLoaded) return prevMonthBalanceRef.current;
+    if (!isPrimaryHistoryReady) return prevMonthBalanceRef.current;
 
     let personalBalance = personalStartingBalance;
     let jointBalance = jointStartingBalance;
