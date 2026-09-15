@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import {
   format,
   startOfMonth,
@@ -41,6 +41,14 @@ interface Props {
   historyRefreshKey?: number;
 }
 
+// Lets the parent pre-fetch a target month's credit card history (before
+// switching to it) so the calendar never has to render that month against
+// whatever history happened to already be cached — the source of the
+// remaining "flash of the old number" on first visits to a month.
+export interface BudgetSpreadsheetHandle {
+  ensureHistoryReady: (targetMonth: Date) => Promise<void>;
+}
+
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 type AccountField = 'personal-checking' | 'joint-checking' | 'personal-deduction' | 'joint-deduction';
@@ -63,7 +71,7 @@ const JOINT_LINES: AccountLine[] = [
   { field: 'joint-deduction', label: '−', color: 'text-orange-400', hoverBg: 'hover:bg-orange-500/20', type: 'expense' },
 ];
 
-export default function BudgetSpreadsheet({
+const BudgetSpreadsheet = forwardRef<BudgetSpreadsheetHandle, Props>(function BudgetSpreadsheet({
   currentMonth,
   entries,
   previousMonthEntries,
@@ -81,7 +89,7 @@ export default function BudgetSpreadsheet({
   partnerJointCardNames = [],
   onMonthChange,
   historyRefreshKey = 0,
-}: Props) {
+}: Props, ref) {
   const [editingCell, setEditingCell] = useState<{ dateKey: string; field: AccountField } | null>(null);
   const [editingBalance, setEditingBalance] = useState<'personal' | 'joint' | null>(null);
   const [editingRecurringDeposit, setEditingRecurringDeposit] = useState<number | null>(null);
@@ -149,6 +157,17 @@ export default function BudgetSpreadsheet({
       return [];
     }
   };
+
+  // Exposed so the parent can pre-fetch (and cache) the history a target month's
+  // own entries need *before* switching currentMonth to it — otherwise that first
+  // render after navigating always finds an empty/uncached historyCache entry and
+  // briefly shows fallback amounts until the calendar's own effect catches up.
+  useImperativeHandle(ref, () => ({
+    ensureHistoryReady: async (targetMonth: Date) => {
+      const target = subMonths(targetMonth, 1);
+      await fetchHistoryForMonth(target.getFullYear(), target.getMonth());
+    },
+  }));
 
   // Calculate last day of previous month
   const lastDayOfPrevMonth = endOfMonth(subMonths(currentMonth, 1));
@@ -2021,4 +2040,8 @@ export default function BudgetSpreadsheet({
       )}
     </div>
   );
-}
+});
+
+BudgetSpreadsheet.displayName = 'BudgetSpreadsheet';
+
+export default BudgetSpreadsheet;

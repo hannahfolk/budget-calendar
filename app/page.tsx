@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth } from 'date-fns';
 import { budgetAPI, BudgetEntry, MonthlyExpense, RecurringDeposit, CreditCard, depositsAPI, partnerAPI, Partner } from '@/lib/api';
-import BudgetSpreadsheet from '@/components/BudgetSpreadsheet';
+import BudgetSpreadsheet, { BudgetSpreadsheetHandle } from '@/components/BudgetSpreadsheet';
 import ExpensesSidebar from '@/components/ExpensesSidebar';
 import PreviousMonthSidebar from '@/components/PreviousMonthSidebar';
 import { useAuth } from '@/components/AuthProvider';
@@ -19,6 +19,7 @@ export default function Home() {
   // before flashing to the correct ones a moment later.
   const [displayMonth, setDisplayMonth] = useState(currentMonth);
   const latestRequestedMonthRef = useRef(currentMonth);
+  const spreadsheetRef = useRef<BudgetSpreadsheetHandle>(null);
   const [entries, setEntries] = useState<BudgetEntry[]>([]);
   const [previousMonthEntries, setPreviousMonthEntries] = useState<BudgetEntry[]>([]);
   const [nextMonthEntries, setNextMonthEntries] = useState<BudgetEntry[]>([]);
@@ -139,6 +140,12 @@ export default function Home() {
           startDate: nextStartDate.toISOString(),
           endDate: nextEndDate.toISOString(),
         }),
+        // Pre-fetch (and cache, inside BudgetSpreadsheet) the credit card history
+        // targetMonth's own entries need, so the calendar never renders that
+        // month's cells against an empty/uncached history — the remaining source
+        // of a flashed placeholder amount on a month's first visit. A no-op on the
+        // very first load, before BudgetSpreadsheet has mounted and attached the ref.
+        spreadsheetRef.current?.ensureHistoryReady(targetMonth) ?? Promise.resolve(),
       ]);
 
       // If the user navigated again while this was in flight, let the newer
@@ -338,6 +345,7 @@ export default function Home() {
             </div>
           ) : (
             <BudgetSpreadsheet
+              ref={spreadsheetRef}
               currentMonth={displayMonth}
               entries={entries}
               previousMonthEntries={previousMonthEntries}
