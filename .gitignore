@@ -39,3 +39,4 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+.claude/worktrees/
