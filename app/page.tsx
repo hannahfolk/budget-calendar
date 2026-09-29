@@ -25,6 +25,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [depositSaveError, setDepositSaveError] = useState<string | null>(null);
   // Bumped whenever the sidebar writes to credit-card history. The calendar
   // watches this so its own historyCache refetches and stays in sync.
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -89,8 +90,21 @@ export default function Home() {
     }
   }, [user]);
 
-  const fetchData = async () => {
+  // Fetches a target month's data and only commits it (together with
+  // `currentMonth` itself) once the fetch resolves. This is what keeps
+  // `currentMonth` and `entries`/`previousMonthEntries`/`nextMonthEntries`
+  // always in sync for every render — the calendar previously updated
+  // `currentMonth` immediately on navigation while the fetch for that month
+  // was still in flight, so it would briefly compute balances by pairing the
+  // NEW month's dates with the OLD month's entries: a flash of wrong numbers
+  // on every month switch (and, via the credit-card-history load, on first
+  // load too). Fetching first and swapping atomically makes that state
+  // unrepresentable instead of trying to hide it with a loading flag.
+  const latestRequestRef = useRef(0);
+
+  const loadMonth = async (targetMonth: Date) => {
     if (!user) return;
+    const requestId = ++latestRequestRef.current;
 
     try {
       if (!hasLoadedOnce.current) {
@@ -101,18 +115,19 @@ export default function Home() {
       // Fetch current month, previous-chain, and next month entries in parallel
       // instead of one after another — three sequential round trips was adding
       // avoidable delay before the calendar's amounts could render.
-      const currentStartDate = startOfMonth(currentMonth);
-      const currentEndDate = endOfMonth(currentMonth);
+      const currentStartDate = startOfMonth(targetMonth);
+      const currentEndDate = endOfMonth(targetMonth);
 
       // Fetch all entries from user's start month through previous month
       // (needed to chain running balances correctly across months)
-      const userStart = user.createdAt ? startOfMonth(new Date(user.createdAt)) : startOfMonth(currentMonth);
-      const prevEndDate = endOfMonth(subMonths(currentMonth, 1));
+      const userStart = user.createdAt ? startOfMonth(new Date(user.createdAt)) : startOfMonth(targetMonth);
+      const prevEndDate = endOfMonth(subMonths(targetMonth, 1));
 
-      // Fetch next month entries (for displaying preview on trailing days)
-      const nextMonth = addMonths(currentMonth, 1);
-      const nextStartDate = startOfMonth(nextMonth);
-      const nextEndDate = endOfMonth(nextMonth);
+      // Fetch next month entries (used only to tell whether next-month overflow
+      // cells have any activity, for their dimming — no figures are displayed)
+      const nextMonthDate = addMonths(targetMonth, 1);
+      const nextStartDate = startOfMonth(nextMonthDate);
+      const nextEndDate = endOfMonth(nextMonthDate);
 
       const [entriesData, prevEntriesData, nextEntriesData] = await Promise.all([
         budgetAPI.getEntries({
@@ -129,23 +144,35 @@ export default function Home() {
         }),
       ]);
 
+      // A newer navigation started while this one was in flight — its own
+      // load will commit instead, so don't clobber it with a stale response.
+      if (requestId !== latestRequestRef.current) return;
+
       setEntries(entriesData);
       setPreviousMonthEntries(prevEntriesData);
       setNextMonthEntries(nextEntriesData);
+      setCurrentMonth(targetMonth);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       setError('Failed to load budget data. Make sure the backend server is running.');
       console.error('Error fetching data:', err);
     } finally {
-      setLoading(false);
-      hasLoadedOnce.current = true;
+      if (requestId === latestRequestRef.current) {
+        setLoading(false);
+        hasLoadedOnce.current = true;
+      }
     }
   };
 
+  // Initial load only — subsequent month changes go through loadMonth
+  // directly (see navigation handlers below), which fetches before
+  // committing `currentMonth` rather than reacting to it after the fact.
   useEffect(() => {
-    if (user) {
-      fetchData();
+    if (user && !hasLoadedOnce.current) {
+      loadMonth(currentMonth);
     }
-  }, [currentMonth, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Check if we can navigate to the previous month (not before user's start month)
   const canGoPreviousMonth = () => {
@@ -159,16 +186,16 @@ export default function Home() {
 
   const handlePreviousMonth = () => {
     if (canGoPreviousMonth()) {
-      setCurrentMonth(prev => subMonths(prev, 1));
+      loadMonth(subMonths(currentMonth, 1));
     }
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(prev => addMonths(prev, 1));
+    loadMonth(addMonths(currentMonth, 1));
   };
 
   const handleToday = () => {
-    setCurrentMonth(new Date());
+    loadMonth(new Date());
   };
 
   const handleExpensesUpdate = (updatedExpenses: MonthlyExpense[]) => {
@@ -177,28 +204,25 @@ export default function Home() {
   };
 
   const handleDepositsUpdate = async (updatedDeposits: RecurringDeposit[]) => {
-    console.log('=== handleDepositsUpdate ===');
-    console.log('Updated deposits:', JSON.stringify(updatedDeposits, null, 2));
+    // Keep the previous value so a failed save can be rolled back instead of
+    // silently leaving the UI showing an edit that was never persisted.
+    const previousDeposits = recurringDeposits;
 
-    // Update local state immediately
+    // Update local state immediately (optimistic)
     setRecurringDeposits(updatedDeposits);
     updateRecurringDeposits(updatedDeposits);
+    setDepositSaveError(null);
 
     // Save to database
     try {
-      console.log('Calling depositsAPI.updateDeposits...');
-      const result = await depositsAPI.updateDeposits(updatedDeposits);
-      console.log('API response:', JSON.stringify(result, null, 2));
-
-      // Verify skippedDates were saved
-      const skippedCheck = result.map(d => ({
-        name: d.name,
-        skippedDates: d.skippedDates || []
-      }));
-      console.log('Skipped dates in response:', JSON.stringify(skippedCheck, null, 2));
-      console.log('=== End handleDepositsUpdate ===');
+      await depositsAPI.updateDeposits(updatedDeposits);
     } catch (error) {
       console.error('Failed to save recurring deposits:', error);
+      // Roll back the optimistic update so the UI doesn't claim a change
+      // was saved when it wasn't, and surface it instead of failing silently.
+      setRecurringDeposits(previousDeposits);
+      updateRecurringDeposits(previousDeposits);
+      setDepositSaveError('Failed to save deposit change — please try again.');
     }
   };
 
@@ -288,6 +312,23 @@ export default function Home() {
         </div>
       </motion.header>
 
+      {/* Deposit Save Error */}
+      {depositSaveError && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between gap-4"
+        >
+          <p className="text-red-400 font-mono text-sm">{depositSaveError}</p>
+          <button
+            onClick={() => setDepositSaveError(null)}
+            className="text-gray-400 hover:text-white text-sm shrink-0"
+          >
+            Dismiss
+          </button>
+        </motion.div>
+      )}
+
       {/* Error Message */}
       {error && (
         <motion.div
@@ -320,7 +361,7 @@ export default function Home() {
               entries={entries}
               previousMonthEntries={previousMonthEntries}
               nextMonthEntries={nextMonthEntries}
-              onEntryUpdate={fetchData}
+              onEntryUpdate={() => loadMonth(currentMonth)}
               personalStartingBalance={user.personalStartingBalance ?? 0}
               jointStartingBalance={user.jointStartingBalance ?? 0}
               onStartingBalancesUpdate={handleStartingBalancesUpdate}
@@ -336,7 +377,7 @@ export default function Home() {
                 const currentStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
                 const targetStart = new Date(newMonth.getFullYear(), newMonth.getMonth(), 1);
                 if (targetStart < currentStart && !canGoPreviousMonth()) return;
-                setCurrentMonth(newMonth);
+                loadMonth(newMonth);
               }}
             />
           )}

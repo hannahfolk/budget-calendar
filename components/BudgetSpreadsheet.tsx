@@ -192,6 +192,7 @@ export default function BudgetSpreadsheet({
         // Build list of all months we need credit card history for
         const monthsToFetch: { year: number; month: number }[] = [
           { year: prevYear, month: prevMonthNum }, // for current month's entries
+          { year: currentMonth.getFullYear(), month: currentMonth.getMonth() }, // for next month's preview entries
         ];
 
         // For chaining: each month M in the chain needs history for (M - 1)
@@ -362,6 +363,33 @@ export default function BudgetSpreadsheet({
     return getRecurringDepositsForDay(day, account).reduce((sum, d) => sum + getDepositAmountForDate(d, day), 0);
   };
 
+  // Single source of truth for editing a recurring deposit's amount, used by
+  // both the day-edit modal and the inline calendar-grid editor. The edit is
+  // recorded as effective FROM THE CALENDAR DAY BEING EDITED, not from
+  // real-world "today" — editing Sept 25th's amount means "as of Sept 25,
+  // this changed," so getDepositAmountForDate immediately reflects it on that
+  // exact cell. `amount` (the "current" field) is set from whichever history
+  // entry is chronologically LATEST after inserting this edit, not naively
+  // from the typed value — editing an earlier day than an existing entry
+  // must not overwrite a more recent one. Re-editing the same calendar day
+  // replaces that day's entry instead of accumulating duplicates.
+  const applyRecurringDepositAmountEdit = (
+    deposit: RecurringDeposit,
+    newAmount: number,
+    editDate: Date
+  ): RecurringDeposit => {
+    const editDateStr = format(editDate, 'yyyy-MM-dd');
+    const history = deposit.amountHistory ? [...deposit.amountHistory] : [];
+    if (history.length === 0) {
+      history.push({ amount: deposit.amount, effectiveDate: deposit.startDate });
+    }
+    const withoutSameDate = history.filter(h => h.effectiveDate !== editDateStr);
+    withoutSameDate.push({ amount: newAmount, effectiveDate: editDateStr });
+    withoutSameDate.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    const latestAmount = withoutSameDate[withoutSameDate.length - 1].amount;
+    return { ...deposit, amount: latestAmount, amountHistory: withoutSameDate };
+  };
+
   // Find the index of a recurring deposit in the main array
   const findRecurringDepositIndex = (deposit: RecurringDeposit) => {
     return recurringDeposits.findIndex(d =>
@@ -447,24 +475,11 @@ export default function BudgetSpreadsheet({
     handleSkipRecurringDeposit(deposit, dateKey);
   };
 
-  const handleModalEditRecurringDeposit = (deposit: RecurringDeposit, newAmount: number) => {
+  const handleModalEditRecurringDeposit = (deposit: RecurringDeposit, newAmount: number, editDate: Date) => {
     const index = findRecurringDepositIndex(deposit);
     if (index === -1) return;
     const updated = [...recurringDeposits];
-    const current = updated[index];
-    if (current.amount !== newAmount) {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const history = current.amountHistory ? [...current.amountHistory] : [];
-      // If first edit, record the original amount with startDate
-      if (history.length === 0) {
-        history.push({ amount: current.amount, effectiveDate: current.startDate });
-      }
-      // Record the new amount with today's date
-      history.push({ amount: newAmount, effectiveDate: today });
-      updated[index] = { ...current, amount: newAmount, amountHistory: history };
-    } else {
-      updated[index] = { ...current, amount: newAmount };
-    }
+    updated[index] = applyRecurringDepositAmountEdit(updated[index], newAmount, editDate);
     onRecurringDepositUpdate(updated);
   };
 
@@ -492,10 +507,19 @@ export default function BudgetSpreadsheet({
   };
 
   // Resolve completeness for a linked credit-card entry. Entries with an embedded
-  // year:month use it; legacy entries (no embedded month) resolve against the
-  // previous month of the viewed month (which is what creditCardHistory holds).
-  const isCardStatementComplete = (year: number | null, month: number | null): boolean => {
-    if (year === null || month === null) return isMonthInPast(prevYear, prevMonthNum);
+  // year:month use it directly. Legacy entries (no embedded month) resolve the
+  // statement month from the entry's OWN date (the calendar convention: a charge
+  // dated in month N pays for month N-1's statement) — never from whichever month
+  // the calendar currently has open, since that would make the same historical
+  // entry resolve differently (open vs. closed) depending on the viewed month.
+  const isCardStatementComplete = (year: number | null, month: number | null, entryDate?: Date): boolean => {
+    if (year === null || month === null) {
+      if (entryDate) {
+        const fallback = subMonths(startOfMonth(entryDate), 1);
+        return isMonthInPast(fallback.getFullYear(), fallback.getMonth());
+      }
+      return isMonthInPast(prevYear, prevMonthNum);
+    }
     return isMonthInPast(year, month);
   };
 
@@ -553,7 +577,7 @@ export default function BudgetSpreadsheet({
     const month = parts[3] ? parseInt(parts[3]) : null;
     if (type === 'projected' || type === 'projectedTotal') return true;
     if (type === 'creditCard' || type === 'creditCardJoint') {
-      return !isCardStatementComplete(year, month);
+      return !isCardStatementComplete(year, month, new Date(entry.date));
     }
     return false;
   };
@@ -580,7 +604,7 @@ export default function BudgetSpreadsheet({
       if (type === 'creditCard') {
         // Until the statement month has fully ended (closed) the actuals are still
         // accumulating, so take the larger of the actual-so-far and the projected budget.
-        const useProjected = !isCardStatementComplete(year, month);
+        const useProjected = !isCardStatementComplete(year, month, new Date(entry.date));
         if (year !== null && month !== null) {
           const cacheKey = `${year}-${month}`;
           const cachedHistory = historyCache.get(cacheKey);
@@ -595,7 +619,7 @@ export default function BudgetSpreadsheet({
       }
 
       if (type === 'creditCardJoint') {
-        const useProjected = !isCardStatementComplete(year, month);
+        const useProjected = !isCardStatementComplete(year, month, new Date(entry.date));
         if (year !== null && month !== null) {
           const cacheKey = `${year}-${month}`;
           const cachedHistory = historyCache.get(cacheKey);
@@ -786,6 +810,41 @@ export default function BudgetSpreadsheet({
     return creditCards.reduce((sum, card) => sum + (card.projected || 0), 0);
   };
 
+  // Single source of truth for turning one day's entries into a personal/joint
+  // dollar delta. Every balance calculator below (current month, the chained
+  // previous-month total, and the next-month preview) must call this instead
+  // of re-summing entries itself — that duplication is exactly how the
+  // September/October mismatch happened: the same entries got resolved two
+  // different ways in two hand-written copies of this same arithmetic.
+  // `ccHistory` is the credit-card history for the statement month these
+  // entries pay into (pass undefined to use the default current-month history).
+  const computeDayDelta = (
+    day: Date,
+    dayEntries: BudgetEntry[],
+    ccHistory: CreditCardMonthlyHistory[] | undefined
+  ): { personal: number; joint: number } => {
+    const personalDeposits = dayEntries
+      .filter(e => e.category === 'personal-checking')
+      .reduce((sum, e) => sum + getLinkedAmount(e, ccHistory), 0);
+    const personalExpenses = dayEntries
+      .filter(e => e.category === 'personal-deduction')
+      .reduce((sum, e) => sum + getLinkedAmount(e, ccHistory), 0);
+    const jointDeposits = dayEntries
+      .filter(e => e.category === 'joint-checking')
+      .reduce((sum, e) => sum + getLinkedAmount(e, ccHistory), 0);
+    const jointExpenses = dayEntries
+      .filter(e => e.category === 'joint-deduction')
+      .reduce((sum, e) => sum + getLinkedAmount(e, ccHistory), 0);
+
+    const personalRecurring = getRecurringDepositAmountForDay(day, 'personal');
+    const jointRecurring = getRecurringDepositAmountForDay(day, 'joint');
+
+    return {
+      personal: personalDeposits + personalRecurring - personalExpenses,
+      joint: jointDeposits + jointRecurring - jointExpenses,
+    };
+  };
+
   // Cache the previous month balance result so we don't flash stale values while history loads
   const prevMonthBalanceRef = useRef<{ dayBalances: Map<string, { personal: number; joint: number }>; ending: { personal: number; joint: number } }>({
     dayBalances: new Map(), ending: { personal: 0, joint: 0 }
@@ -832,24 +891,9 @@ export default function BudgetSpreadsheet({
         isSameDay(new Date(entry.date), day)
       );
 
-      const personalDeposits = dayEntries
-        .filter(e => e.category === 'personal-checking')
-        .reduce((sum, e) => sum + getLinkedAmount(e, currentCcHistory), 0);
-      const personalExpenses = dayEntries
-        .filter(e => e.category === 'personal-deduction')
-        .reduce((sum, e) => sum + getLinkedAmount(e, currentCcHistory), 0);
-      const jointDeposits = dayEntries
-        .filter(e => e.category === 'joint-checking')
-        .reduce((sum, e) => sum + getLinkedAmount(e, currentCcHistory), 0);
-      const jointExpenses = dayEntries
-        .filter(e => e.category === 'joint-deduction')
-        .reduce((sum, e) => sum + getLinkedAmount(e, currentCcHistory), 0);
-
-      const personalRecurring = getRecurringDepositAmountForDay(day, 'personal');
-      const jointRecurring = getRecurringDepositAmountForDay(day, 'joint');
-
-      personalBalance = personalBalance + personalDeposits + personalRecurring - personalExpenses;
-      jointBalance = jointBalance + jointDeposits + jointRecurring - jointExpenses;
+      const delta = computeDayDelta(day, dayEntries, currentCcHistory);
+      personalBalance = personalBalance + delta.personal;
+      jointBalance = jointBalance + delta.joint;
 
       dayBalances.set(dateKey, { personal: personalBalance, joint: jointBalance });
 
@@ -1088,19 +1132,9 @@ export default function BudgetSpreadsheet({
     while (day <= monthEnd) {
       const dateKey = format(day, 'yyyy-MM-dd');
 
-      // Get manual deposits and expenses for this day
-      const personalDeposits = getAmountForField(day, 'personal-checking');
-      const personalExpenses = getAmountForField(day, 'personal-deduction');
-      const jointDeposits = getAmountForField(day, 'joint-checking');
-      const jointExpenses = getAmountForField(day, 'joint-deduction');
-
-      // Get recurring deposits for this day
-      const personalRecurring = getRecurringDepositAmountForDay(day, 'personal');
-      const jointRecurring = getRecurringDepositAmountForDay(day, 'joint');
-
-      // Calculate end of day balance (including recurring deposits)
-      personalBalance = personalBalance + personalDeposits + personalRecurring - personalExpenses;
-      jointBalance = jointBalance + jointDeposits + jointRecurring - jointExpenses;
+      const delta = computeDayDelta(day, getEntriesForDay(day), undefined);
+      personalBalance = personalBalance + delta.personal;
+      jointBalance = jointBalance + delta.joint;
 
       balances.set(dateKey, { personal: personalBalance, joint: jointBalance });
 
@@ -1127,6 +1161,12 @@ export default function BudgetSpreadsheet({
     const nextMonthStart = startOfMonth(nextMonth);
     const nextMonthEnd = endOfMonth(nextMonth);
 
+    // Next month's entries pay into the CURRENT month's statement (the same
+    // "entry dated month N references month N-1's statement" convention used
+    // everywhere else) — not the same history used for the current month's own
+    // entries. Fetched explicitly for this purpose in the history-fetching effect.
+    const nextMonthCcHistory = historyCache.get(`${currentMonth.getFullYear()}-${currentMonth.getMonth()}`);
+
     let day = nextMonthStart;
     while (day <= nextMonthEnd) {
       const dateKey = format(day, 'yyyy-MM-dd');
@@ -1134,28 +1174,9 @@ export default function BudgetSpreadsheet({
         isSameDay(new Date(entry.date), day)
       );
 
-      const personalRecurring = getDepositsForDate(recurringDeposits, day)
-        .filter(d => d.account === 'personal')
-        .reduce((sum, d) => sum + getDepositAmountForDate(d, day), 0);
-      const jointRecurring = getDepositsForDate(recurringDeposits, day)
-        .filter(d => d.account === 'joint')
-        .reduce((sum, d) => sum + getDepositAmountForDate(d, day), 0);
-
-      const personalDeposits = dayEntries
-        .filter(e => e.category === 'personal-checking')
-        .reduce((sum, e) => sum + e.amount, 0);
-      const personalExpenses = dayEntries
-        .filter(e => e.category === 'personal-deduction')
-        .reduce((sum, e) => sum + e.amount, 0);
-      const jointDeposits = dayEntries
-        .filter(e => e.category === 'joint-checking')
-        .reduce((sum, e) => sum + e.amount, 0);
-      const jointExpenses = dayEntries
-        .filter(e => e.category === 'joint-deduction')
-        .reduce((sum, e) => sum + e.amount, 0);
-
-      personalBalance = personalBalance + personalDeposits + personalRecurring - personalExpenses;
-      jointBalance = jointBalance + jointDeposits + jointRecurring - jointExpenses;
+      const delta = computeDayDelta(day, dayEntries, nextMonthCcHistory);
+      personalBalance = personalBalance + delta.personal;
+      jointBalance = jointBalance + delta.joint;
 
       balances.set(dateKey, { personal: personalBalance, joint: jointBalance });
 
@@ -1332,13 +1353,14 @@ export default function BudgetSpreadsheet({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (editingBalance) {
-        handleBalanceBlur();
-      } else if (editingRecurringDeposit !== null) {
-        handleRecurringDepositSave();
-      } else {
-        handleCellBlur();
-      }
+      // Blur instead of calling the save handler directly: the save clears
+      // the editing state, which removes this focused input from the DOM,
+      // which fires a native blur — re-invoking the SAME save handler a
+      // second time, by then reading state that's already been reset (so it
+      // silently no-ops, discarding whatever was just typed). Each input's
+      // own onBlur already calls the right save handler for it, so routing
+      // through blur here makes that the single save trigger instead of two.
+      (e.target as HTMLInputElement).blur();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setEditingCell(null);
@@ -1391,7 +1413,22 @@ export default function BudgetSpreadsheet({
         ))}
       </div>
 
-      {/* Calendar Grid */}
+      {/* Calendar Grid — nothing here renders until the credit-card history
+          needed to resolve this month's numbers has finished loading. This
+          resets briefly on every month change (see ccHistoryLoaded above);
+          showing the grid anyway with a stale cached fallback is exactly what
+          caused the September/October balance-mismatch bug, so a loading
+          skeleton is shown instead of ever risking a momentarily-wrong number. */}
+      {!ccHistoryLoaded ? (
+        <div className="grid grid-cols-7 gap-1">
+          {calendarDays.map((day) => (
+            <div
+              key={format(day, 'yyyy-MM-dd')}
+              className="min-h-[56px] lg:min-h-[160px] p-1 lg:p-2 rounded-lg border border-gray-800/30 bg-gray-800/10 animate-pulse"
+            />
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-7 gap-1">
           {calendarDays.map((day, index) => {
             const isCurrentMonth = isSameMonth(day, currentMonth);
@@ -1599,6 +1636,7 @@ export default function BudgetSpreadsheet({
                                           step="0.01"
                                           value={tempValue}
                                           onChange={(e) => setTempValue(e.target.value)}
+                                          onFocus={(e) => e.target.select()}
                                           onBlur={handleRecurringDepositSave}
                                           onKeyDown={handleKeyDown}
                                           className="w-full bg-transparent text-green-400 outline-none border-b border-green-400 text-xs"
@@ -1756,6 +1794,7 @@ export default function BudgetSpreadsheet({
                                           step="0.01"
                                           value={tempValue}
                                           onChange={(e) => setTempValue(e.target.value)}
+                                          onFocus={(e) => e.target.select()}
                                           onBlur={handleRecurringDepositSave}
                                           onKeyDown={handleKeyDown}
                                           className="w-full bg-transparent text-blue-400 outline-none border-b border-blue-400 text-xs"
@@ -1878,62 +1917,27 @@ export default function BudgetSpreadsheet({
                   </div>
                 )}
 
-                {/* Next Month overflow days - show ending balances only */}
-                {isNextMonthDay && (() => {
-                  const dayBalance = nextMonthBalances.get(dayKey);
-                  if (!dayBalance) return null;
-
-                  const prevDay = addDays(day, -1);
-                  const prevDayKey = format(prevDay, 'yyyy-MM-dd');
-                  let prevBalance: { personal: number; joint: number };
-                  if (isSameMonth(prevDay, currentMonth)) {
-                    const prevRunning = runningBalances.get(prevDayKey);
-                    prevBalance = prevRunning || { personal: personalStartingBalance, joint: jointStartingBalance };
-                  } else {
-                    const prevNext = nextMonthBalances.get(prevDayKey);
-                    prevBalance = prevNext || { personal: 0, joint: 0 };
-                  }
-
-                  const personalChanged = dayBalance.personal !== prevBalance.personal;
-                  const jointChanged = dayBalance.joint !== prevBalance.joint;
-
-                  if (!personalChanged && !jointChanged) return null;
-
-                  return (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-1">
-                      <div className="border-r border-gray-700/30 pr-1">
-                        <div className="text-[10px] text-gray-500 font-mono mb-0.5">Personal</div>
-                        {personalChanged && (
-                          <div className="pt-1 border-t border-gray-700/50">
-                            <div className={`text-xs font-bold px-1 ${dayBalance.personal >= 0 ? 'text-purple-400/70' : 'text-red-400/70'}`}>
-                              = {formatCurrency(dayBalance.personal)}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="pl-1">
-                        <div className="text-[10px] text-gray-500 font-mono mb-0.5">Joint</div>
-                        {jointChanged && (
-                          <div className="pt-1 border-t border-gray-700/50">
-                            <div className={`text-xs font-bold px-1 ${dayBalance.joint >= 0 ? 'text-cyan-400/70' : 'text-red-400/70'}`}>
-                              = {formatCurrency(dayBalance.joint)}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
+                {/* Next month overflow days intentionally show no balance numbers —
+                    only the day cell itself (kept clickable via onMonthChange/etc.
+                    below). The user navigates to the next month to see its figures
+                    rather than previewing them here. hasOverflowData above still
+                    drives the cell's dimming so "has activity" stays a visual cue. */}
                 </div>
               </div>
             );
           })}
       </div>
+      )}
         </div>
       </div>
 
       {/* Mobile day-detail panel — Apple Calendar style. Shows the selected day's
-          sections; tapping a section opens the day modal for that account/field. */}
+          sections; tapping a section opens the day modal for that account/field.
+          Same readiness gate as the grid above — its balances come from the
+          same calculation, so it's just as capable of flashing a stale number. */}
+      {!ccHistoryLoaded ? (
+        <div className="lg:hidden mt-4 pt-4 border-t border-gray-700/50 h-40 rounded-lg bg-gray-800/10 animate-pulse" />
+      ) : (
       <div className="lg:hidden mt-4 pt-4 border-t border-gray-700/50 space-y-4 relative">
         <div>
           <h3 className="text-lg font-display font-bold text-white">
@@ -2000,6 +2004,7 @@ export default function BudgetSpreadsheet({
           </div>
         </div>
       </div>
+      )}
 
       {/* Grid Pattern Overlay */}
       <div className="absolute inset-0 grid-pattern opacity-10 pointer-events-none rounded-xl"></div>

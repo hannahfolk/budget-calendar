@@ -18,7 +18,7 @@ interface Props {
   onAddEntry: (field: string, value: string) => Promise<void>;
   onDeleteEntry: (entryId: string) => void;
   onSkipRecurringDeposit: (deposit: RecurringDeposit) => void;
-  onEditRecurringDeposit: (deposit: RecurringDeposit, newAmount: number) => void;
+  onEditRecurringDeposit: (deposit: RecurringDeposit, newAmount: number, editDate: Date) => void;
   getLinkedAmount: (entry: BudgetEntry) => number;
   isProjectedEntry: (entry: BudgetEntry) => boolean;
   formatCurrency: (amount: number) => string;
@@ -163,7 +163,7 @@ export default function DayEditModal({
   const handleSaveRecurringDeposit = (deposit: RecurringDeposit) => {
     const amount = parseFloat(editingDepositAmount);
     if (!isNaN(amount) && amount >= 0) {
-      onEditRecurringDeposit(deposit, amount);
+      onEditRecurringDeposit(deposit, amount, date);
     }
     setEditingDepositIdx(null);
     setEditingDepositAmount('');
@@ -250,8 +250,21 @@ export default function DayEditModal({
                       step="0.01"
                       value={editingDepositAmount}
                       onChange={(e) => setEditingDepositAmount(e.target.value)}
+                      onFocus={(e) => e.target.select()}
                       onBlur={() => handleSaveRecurringDeposit(dep)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveRecurringDeposit(dep)}
+                      onKeyDown={(e) => {
+                        // Blur instead of saving directly. Enter removes this
+                        // input from the DOM (editingDepositIdx flips to null),
+                        // and removing a focused element fires a native blur —
+                        // which would call handleSaveRecurringDeposit a SECOND
+                        // time, by then reading the just-reset empty amount
+                        // state and silently discarding the edit. Routing
+                        // through blur makes onBlur the single save trigger.
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
                       className={`w-24 bg-transparent outline-none border-b ${isPersonal ? 'text-green-400 border-green-400' : 'text-blue-400 border-blue-400'}`}
                       autoFocus
                     />

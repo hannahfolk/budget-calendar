@@ -422,7 +422,13 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
       if (column === 'joint' && card && isPartnerCard(card)) {
         await partnerAPI.updatePartnerHistoryJoint(cardName, prevYear, prevMonthNum, amount, undefined);
       } else if (column === 'personal') {
-        await creditCardHistoryAPI.updateHistory(cardName, prevYear, prevMonthNum, amount, undefined);
+        // The input shows/accepts a personal-ONLY figure (actual minus joint) to
+        // match what's displayed, but the stored `actual` field must stay the
+        // TRUE total — getLinkedAmount's credit-card resolution elsewhere reads
+        // it as the overall amount, not personal-only. Add the joint portion
+        // back before persisting.
+        const currentJoint = card ? getCardPreviousMonthValues(card).joint : 0;
+        await creditCardHistoryAPI.updateHistory(cardName, prevYear, prevMonthNum, amount + currentJoint, undefined);
       } else {
         await creditCardHistoryAPI.updateHistory(cardName, prevYear, prevMonthNum, undefined, amount);
       }
@@ -784,10 +790,15 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
   // Alias for backward compat in totals
   const getCardBudgetActual = getCardBudgetValues;
 
-  // Calculate totals for previous month section using projected vs actual based on closing date
+  // Calculate totals for previous month section using projected vs actual based on closing date.
+  // Personal-only (actual minus joint) per card, matching the per-row display —
+  // and skipping partner-owned cards entirely, since their Personal column is
+  // blanked out in the UI (that "actual" is the partner's own card total, not
+  // this user's spend, so it must not leak into this user's personal total).
   const personalTotal = creditCards.reduce((sum, card) => {
-    const { personal } = getCardPreviousMonthValues(card);
-    return sum + personal;
+    if (isPartnerCard(card)) return sum;
+    const { personal, joint } = getCardPreviousMonthValues(card);
+    return sum + (personal - joint);
   }, 0);
 
   const jointTotal = creditCards.reduce((sum, card) => {
@@ -875,7 +886,7 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
                             className={`w-20 text-right ${canEdit ? 'cursor-pointer' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (canEdit && !isEditingPersonal) handleHistoryEditStart(card.name, 'personal', personalValue);
+                              if (canEdit && !isEditingPersonal) handleHistoryEditStart(card.name, 'personal', personalValue - jointValue);
                             }}
                             onPointerDown={(e) => e.stopPropagation()}
                           >
@@ -896,7 +907,10 @@ export default function PreviousMonthSidebar({ currentMonth, creditCards, person
                               />
                             ) : (
                               <span className={`font-mono text-[10px] font-bold ${!isClosed ? 'text-green-400/60' : 'text-green-400'} ${canEdit ? 'hover:underline' : ''}`}>
-                                {formatCurrency(personalValue)}
+                                {/* Personal-only spend: the card's overall actual minus the
+                                    joint portion already counted separately in the Joint
+                                    column, so this reads as "my spending, not shared." */}
+                                {formatCurrency(personalValue - jointValue)}
                               </span>
                             )}
                           </div>
